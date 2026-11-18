@@ -1,6 +1,6 @@
 ---
 description: 列出所有由 ctm 托管的会话及其状态
-allowed-tools: mcp__ctm__ctm_list
+allowed-tools: mcp__plugin_ctm_ctm__ctm_list
 ---
 
 调用 `ctm_list` 工具，把返回的 JSON 按表格展示给用户。

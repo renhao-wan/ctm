@@ -1,7 +1,7 @@
 ---
 description: 向另一个托管会话发送通知
 argument-hint: <会话名> <消息>
-allowed-tools: mcp__ctm__ctm_tell
+allowed-tools: mcp__plugin_ctm_ctm__ctm_tell
 ---
 
 调用 `ctm_tell` 工具。

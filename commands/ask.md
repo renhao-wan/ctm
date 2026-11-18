@@ -1,7 +1,7 @@
 ---
 description: 向另一个托管会话提问
 argument-hint: <会话名> <问题>
-allowed-tools: mcp__ctm__ctm_ask
+allowed-tools: mcp__plugin_ctm_ctm__ctm_ask
 ---
 
 调用 `ctm_ask` 工具。
