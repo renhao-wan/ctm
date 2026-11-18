@@ -19,9 +19,10 @@
   "scripts": {
     "start": "node src/main.mjs",
     "doctor": "node src/main.mjs doctor",
-    "test": "node test/unit-tui.mjs && node test/unit-inbox.mjs",
+    "test": "node test/unit-tui.mjs && node test/unit-inbox.mjs && node test/unit-launch.mjs && node test/unit-mcp.mjs",
     "test:smoke": "node test/m1-smoke.mjs",
-    "test:m2": "node test/m2-delivery.mjs"
+    "test:m2": "node test/m2-delivery.mjs",
+    "test:m3": "node test/m3-lazy-launch.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0"

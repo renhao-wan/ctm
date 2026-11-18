@@ -2,7 +2,7 @@
 
 用 ConPTY 托管 Claude Code 交互式会话，让同一台机器上的多个会话可以互相发消息、感知状态、按组讨论，而不修改 Claude Code 本身。
 
-> 当前状态：M1（宿主 + 单会话托管 + 状态机）与 M2 的主动投递已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
+> 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
 
 ## 形态：插件 + 宿主
 
@@ -12,12 +12,15 @@
 终端窗口 B ── ctm 宿主 ── ConPTY ── claude B      ← 主动送达靠宿主
                                         ▲
 claude A（已安装插件）── /ctm:ask ──────┘        ← 插件负责发令与查看
+                    │
+                    └─ B 没开时，A 按 meta.json 记录重新拉起 B 的宿主与窗口
 ```
 
-- **插件**提供 `/ctm:list`、`/ctm:ask`、`/ctm:tell`，通过内置 MCP server 访问收件箱
+- **插件**提供 `/ctm:list`、`/ctm:ask`、`/ctm:tell`、`/ctm:start`，通过内置 MCP server 访问收件箱
 - **宿主**持有目标会话的 PTY，在目标空闲时把消息写成一条用户输入
+- **按需启动**：目标会话离线时，发送方先入队，再用目标 meta.json 里记录的 `cwd` / `node` / 入口路径在新终端窗口把它拉起来；宿主启动后自动补投收件箱里的消息
 
-**硬约束**：需要接收消息的会话必须由 `ctm new` 启动。普通 `claude` 会话没有输入通道，插件无法给它送信。发送方可以是任意安装了本插件的会话。
+**硬约束**：需要接收消息的会话必须至少被 `ctm new` 启动过一次，之后可以关闭窗口——注册信息（`meta.json`）会保留，其他会话仍能把它重新拉起。普通 `claude` 会话没有输入通道，插件无法给它送信。发送方可以是任意安装了本插件的会话。
 
 ---
 
@@ -28,6 +31,7 @@ npm install
 node src/main.mjs doctor          # 环境自检
 node src/main.mjs new web --cwd D:/projects/web
 node src/main.mjs list
+node src/main.mjs start web       # 窗口关掉后重新拉起
 node src/main.mjs kill web
 ```
 
@@ -36,12 +40,30 @@ node src/main.mjs kill web
 在另一个 Claude Code 会话里安装本插件后：
 
 ```text
-/ctm:list                          # 查看托管会话与未读数
-/ctm:ask web 认证服务的端口是多少？   # 提问，对方空闲时送达
+/ctm:list                          # 查看托管会话、状态与未读数
+/ctm:ask web 认证服务的端口是多少？   # 提问；web 没开时自动拉起
 /ctm:tell web 接口字段已经改了        # 单向通知
+/ctm:start web                     # 只启动，不发消息
 ```
 
 本地开发时可用 `claude --plugin-dir D:/projects/claudecode-plugings/ctm` 临时加载，正式安装走 `/plugin`。
+
+### B 没开窗口时
+
+只要 B 至少被 `ctm new` 启动过一次，之后就可以关掉它的窗口。再给 B 发消息时：
+
+```text
+A 的会话里：/ctm:ask web 认证模块的入口在哪？
+```
+
+发生的事：
+
+1. 消息先写入 `web` 的收件箱（落盘，不会丢）
+2. `web` 离线，发送方读取它的 `meta.json`，在新终端窗口重新执行同一个宿主
+3. 新宿主启动 `claude`、自动处理信任提示，就绪后把收件箱里的消息作为用户输入提交
+4. 新窗口里能直接看到这条消息和 `claude` 的回答
+
+本机实测：从发起到收到回答约 25 秒（claude 2.1.319）。不发消息、只想开窗口时用 `/ctm:start web` 或 `ctm start web`。
 
 ---
 
@@ -94,22 +116,22 @@ node ../cc-wrapped/verify/diff-installs.mjs
 
 ### CC GUI 插件
 
-同一套检测逻辑也做成了 CC GUI 插件（不是 Claude Code 插件），可独立发布到官方插件市场：
+同一套检测逻辑也做成了 CC GUI 插件（不是 Claude Code 插件），并扩展到宿主支持的 13 个 CLI 引擎：
 
 ```text
-D:\projects\claudecode-plugings\ccgui-plugin-claude-install-audit\
-├── manifest.json      # id: claude-install-audit
-├── main.js            # 自包含单文件
+D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
+├── manifest.json      # id: cli-install-audit
+├── main.js            # 自包含单文件，内置引擎表
 ├── docs/icon.png
 ├── README.md / LICENSE
 └── .github/workflows/release.yml   # 打 tag 自动发 Release
 ```
 
-安装：CC GUI 侧边栏「插件」→「从本地目录安装」→ 选上面这个目录。入口在**设置 → 插件 → Claude 安装检测**，命令面板搜「Claude 安装检测」也能直接跳到该区块。刻意不占聊天右侧面板。安装后在聊天右侧面板会出现「Claude 安装」页签，打开即自动检测，约 3 秒。
+安装：CC GUI 侧边栏「插件」→「从本地目录安装」→ 选上面这个目录。入口在**设置 → 插件 → CLI 安装检测**，命令面板搜「CLI 安装检测」也能直接跳到该区块。刻意不占聊天右侧面板。
 
 插件只声明三项权限：`ui:settings-section`（设置页区块）、`ui:command`（命令面板入口）与 `exec:powershell`（经 `ctx.bridge.invoke('plugin_exec_run')` 读取 PATH、进程与文件哈希）。
 
-它比命令行脚本多一项能力：用 `Get-CimInstance Win32_Process` 直接读取 **CC GUI 实际 spawn 的进程路径**，因此能反映「自定义 Claude Code 路径」是否真的生效。
+它比命令行脚本多几项能力：用 `Get-CimInstance Win32_Process` 读取 **CC GUI 实际 spawn 的进程路径**，回溯父进程链标出「CC GUI / 终端」归属，按路径统计同一二进制的实例数，并对每个引擎分别给出「一致 / 分叉 / 未安装」。
 
 ---
 
@@ -148,6 +170,10 @@ D:\projects\claudecode-plugings\ccgui-plugin-claude-install-audit\
 - 信任提示的自动选择依赖当前布局（`❯` 紧邻选项文本）。布局变化时不猜按键，会话会停在启动阶段直到超时，需要用户手动处理。
 - 项目目录自带 `.mcp.json` 时，claude 启动会要求确认是否加载其中的 MCP server。MCP server 可以执行任意代码，宿主**不代替用户授权**，会话停在 `needs-input`，需要用户按键确认一次。
 - 首条消息：2.1.319 单会话冒烟 6/6 成功，但 5 会话并发启动时实测 4/5 失败。多会话场景（M2）需要重新验证，防御措施（settle + 提交确认）保留。
+- 按需启动依赖 `meta.json`：`ctm kill` 会删除它，被 kill 掉的会话无法再由其他会话拉起。要保留"随时可唤醒"能力请直接关闭窗口（Ctrl+C），不要用 `ctm kill`。
+- 按需启动默认新开终端窗口，优先用 `wt.exe`，缺失时回退 `cmd.exe /c start`。无桌面会话（纯后台）环境下只能用 `CTM_LAUNCH_MODE=background`，此时没有可视窗口。
+- 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。
+- 15 秒的 `launch.lock` 用来防止多个发送方同时拉起同一个会话；在此期间重复请求会返回"启动进行中"。
 
 ---
 
@@ -161,6 +187,7 @@ commands/
   list.md               /ctm:list
   ask.md                /ctm:ask
   tell.md               /ctm:tell
+  start.md              /ctm:start
 src/
   main.mjs              CLI
   session.mjs           PTY 宿主、状态机、收件箱投递
@@ -170,12 +197,16 @@ src/
   hook-probe.cjs        hook 事件落盘
   registry.mjs          会话注册表
   inbox.mjs             收件箱（跨进程投递队列）
+  launch.mjs            按需启动离线的托管会话
   mcp-server.mjs        插件 MCP server
 test/
   unit-tui.mjs          TUI 判定逻辑单元测试
   unit-inbox.mjs        收件箱单元测试
+  unit-launch.mjs       按需启动单元测试
+  unit-mcp.mjs          MCP server 工具语义测试（假入口，不启动 claude）
   m1-smoke.mjs          M1 单会话冒烟测试
   m2-delivery.mjs       M2 主动投递端到端测试
+  m3-lazy-launch.mjs    M3 离线会话被自动拉起并补投
 ```
 
 设计阶段的验证脚本（`v*.mjs`、`diag-*.mjs`）与原始记录在 `../cc-wrapped/verify/`，不属于本工程。

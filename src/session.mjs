@@ -6,7 +6,7 @@ import { spawn as ptySpawn } from 'node-pty';
 import { ScreenBuffer, Bootstrap, isBusyText, normalize } from './tui.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { writeSettings } from './hooks.mjs';
-import { writeMeta, readMeta, removeMeta } from './registry.mjs';
+import { writeMeta, readMeta, removeMeta, sessionDir } from './registry.mjs';
 import { pendingMessages, markDelivered, readDelivered, formatMessage } from './inbox.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -94,7 +94,17 @@ export class Session {
       // 进程已自行退出，不要再 kill：node-pty 会尝试 AttachConsole 并报错
       this.exited = true;
       this.clearTimers();
-      removeMeta(this.name);
+      // 保留 meta：其他进程要靠它按需重新拉起本会话
+      const meta = readMeta(this.name);
+      if (meta) {
+        writeMeta(this.name, {
+          ...meta,
+          pid: null,
+          status: 'offline',
+          exitedAt: new Date().toISOString(),
+          exitCode,
+        });
+      }
       this.onExit(exitCode);
     });
 
@@ -106,8 +116,19 @@ export class Session {
       binVia: this.binVia,
       version: claudeVersion(this.bin) || '',
       status: 'starting',
+      settleMs: this.settleMs,
+      // 供其他进程按需重新拉起本会话
+      node: process.execPath,
+      entry: path.resolve(process.argv[1] || ''),
       startedAt: new Date().toISOString(),
     });
+
+    // meta 里已经有新 pid 了，其他进程不会再重复拉起；此时才放开启动锁
+    try {
+      fs.rmSync(path.join(sessionDir(this.name), 'launch.lock'), { force: true });
+    } catch {
+      // 忽略
+    }
 
     this.bindStdin();
     this.delivered = readDelivered(this.name);

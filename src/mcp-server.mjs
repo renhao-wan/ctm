@@ -3,13 +3,17 @@
 //
 // 插件通过 .mcp.json 启动本进程（stdio），对外提供：
 //   ctm_list / ctm_status   查看托管会话
+//   ctm_start               拉起离线会话
 //   ctm_tell / ctm_ask      向托管会话投递消息
 //
 // 投递只是往目标会话的收件箱追加；真正的写入由目标会话的 ctm 宿主完成，
 // 因此这里不需要常驻 PTY，也不会因为宿主忙碌而阻塞。
+// 目标离线时，本进程会按 meta.json 记录重新拉起目标宿主（新终端窗口），
+// 宿主启动后自行从收件箱补投。
 import { createInterface } from 'node:readline';
 import { listSessions, readMeta, isAlive } from './registry.mjs';
 import { enqueue, pendingMessages, readDelivered } from './inbox.mjs';
+import { launchSession } from './launch.mjs';
 
 const SENDER = process.env.CTM_SESSION_NAME || 'claude';
 const SENDER_CWD = process.cwd();
@@ -46,8 +50,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'ctm_start',
+    description: '启动一个已配置但当前未运行的托管会话。会在新的终端窗口中打开。',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: '会话名' } },
+      required: ['name'],
+    },
+  },
+  {
     name: 'ctm_tell',
-    description: '向另一个托管会话发送单向通知。消息会在对方空闲时作为一条用户输入送达。',
+    description: '向另一个托管会话发送单向通知。消息会在对方空闲时作为一条用户输入送达；对方离线时保存在收件箱并尝试启动会话。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -73,8 +86,8 @@ const TOOLS = [
 
 function describe(m) {
   const alive = isAlive(m.pid);
-  const status = alive ? m.status || 'unknown' : 'dead';
-  const unread = alive ? pendingMessages(m.name, readDelivered(m.name)).length : 0;
+  const status = alive ? m.status || 'unknown' : 'offline';
+  const unread = pendingMessages(m.name, readDelivered(m.name)).length;
   return {
     名称: m.name,
     状态: status,
@@ -82,6 +95,23 @@ function describe(m) {
     目录: m.cwd,
     版本: m.version || '',
   };
+}
+
+function ensureRunning(name) {
+  const meta = readMeta(name);
+  if (!meta) return { running: false, launched: false, reason: 'unknown-session' };
+  if (isAlive(meta.pid)) return { running: true };
+  const r = launchSession(name);
+  return { running: false, launched: r.started, reason: r.reason };
+}
+
+/** 尝试把离线目标拉起来；拉起是尽力而为，失败不影响消息已入队这一事实。 */
+function startNote(r) {
+  if (r.running) return '目标在线，消息将在其空闲时送达';
+  if (r.launched) return '目标离线，消息已保存，正在启动目标会话';
+  if (r.reason === 'unknown-session') return '会话不存在';
+  if (r.reason === 'launching') return '目标离线，消息已保存，启动进行中';
+  return `目标离线，消息已保存，自动启动失败（${r.reason}）`;
 }
 
 function handleCall(id, name, args) {
@@ -105,10 +135,29 @@ function handleCall(id, name, args) {
         text: args.text,
         kind: name === 'ctm_ask' ? 'ask' : 'tell',
       });
+      // 目标没开窗口时，由发送方负责把它拉起来
+      const started = ensureRunning(args.to);
       return toolResult(
         id,
-        JSON.stringify({ ok: true, id: msg.id, to: msg.to, note: '已写入收件箱，目标空闲时送达' }, null, 2),
+        JSON.stringify(
+          { ok: true, id: msg.id, to: msg.to, target: started, note: startNote(started) },
+          null,
+          2,
+        ),
       );
+    }
+
+    if (name === 'ctm_start') {
+      const meta = readMeta(args.name);
+      if (!meta) return toolResult(id, `会话不存在：${args.name}`, true);
+      const r = launchSession(args.name);
+      if (r.started) {
+        return toolResult(id, JSON.stringify({ ok: true, name: args.name, mode: r.mode, note: '正在启动' }, null, 2));
+      }
+      if (r.reason === 'already-running') {
+        return toolResult(id, JSON.stringify({ ok: true, name: args.name, note: '会话已在运行' }, null, 2));
+      }
+      return toolResult(id, `启动失败：${r.reason}`, true);
     }
 
     return toolResult(id, `未知工具：${name}`, true);

@@ -6,20 +6,23 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Session } from './session.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
-import { ctmHome, listSessions, readMeta, isAlive, removeMeta } from './registry.mjs';
+import { ctmHome, listSessions, readMeta, isAlive, removeMeta, writeMeta } from './registry.mjs';
+import { launchSession } from './launch.mjs';
 
 function usage() {
   console.log(`ctm — Claude Terminal Multiplexer
 
 用法：
   ctm new [name] [--cwd <path>] [--settle <ms>]   启动托管会话
+  ctm start <name>                                重新拉起已存在但离线的会话
   ctm list                                        列出托管会话
   ctm kill <name>                                 结束会话
   ctm doctor                                      环境自检
 
 环境变量：
   CTM_CLAUDE_BIN   指定 claude 可执行文件（绝对路径）
-  CTM_HOME         ctm 数据目录，默认 ~/.ctm`);
+  CTM_HOME         ctm 数据目录，默认 ~/.ctm
+  CTM_LAUNCH_MODE  按需启动方式：window（新终端窗口，默认）| background`);
 }
 
 function parseArgs(argv) {
@@ -67,9 +70,42 @@ function cmdNew(args) {
   }
   process.on('SIGINT', () => {
     session.stop();
-    removeMeta(name);
-    process.exit(0);
+    // 保留 meta：其他会话可以按需重新拉起本会话
+    const meta = readMeta(name);
+    if (meta) {
+      writeMeta(name, {
+        ...meta,
+        pid: null,
+        status: 'offline',
+        exitedAt: new Date().toISOString(),
+      });
+    }
+    setTimeout(() => process.exit(0), 300);
   });
+}
+
+function cmdStart(args) {
+  const name = args._[1];
+  if (!name) {
+    console.error('用法：ctm start <name>');
+    process.exit(1);
+  }
+  const meta = readMeta(name);
+  if (!meta) {
+    console.error(`[ctm] 找不到会话：${name}`);
+    process.exit(1);
+  }
+  const r = launchSession(name);
+  if (r.started) {
+    console.log(`[ctm] 正在启动 ${name}（${r.mode}）`);
+    return;
+  }
+  if (r.reason === 'already-running') {
+    console.log(`[ctm] ${name} 已在运行`);
+    return;
+  }
+  console.error(`[ctm] 启动失败：${r.reason}`);
+  process.exit(1);
 }
 
 function cmdList() {
@@ -80,7 +116,7 @@ function cmdList() {
   }
   const rows = sessions.map((m) => ({
     名称: m.name,
-    状态: isAlive(m.pid) ? m.status || 'alive' : 'dead',
+    状态: isAlive(m.pid) ? m.status || 'alive' : 'offline',
     PID: m.pid,
     目录: m.cwd,
     版本: m.version || '',
@@ -192,6 +228,9 @@ const cmd = args._[0];
 switch (cmd) {
   case 'new':
     cmdNew(args);
+    break;
+  case 'start':
+    cmdStart(args);
     break;
   case 'list':
     cmdList();

@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { sessionDir, readMeta, isAlive } from './registry.mjs';
+import { sessionDir, readMeta } from './registry.mjs';
 
 export function inboxPath(name) {
   return path.join(sessionDir(name), 'inbox.jsonl');
@@ -24,10 +24,10 @@ export class UnknownSessionError extends Error {
   }
 }
 
-/** 投递一条消息。返回写入的消息对象。 */
+/** 投递一条消息。目标离线也允许：消息留在收件箱，等会话重新启动后补投。 */
 export function enqueue({ to, from, fromCwd, text, kind = 'tell' }) {
   const meta = readMeta(to);
-  if (!meta || !isAlive(meta.pid)) throw new UnknownSessionError(to);
+  if (!meta) throw new UnknownSessionError(to);
   if (!text || !text.trim()) throw new Error('消息内容为空');
 
   const msg = {
