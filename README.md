@@ -276,6 +276,8 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 | 消息前缀必须明确 | `[web]` 无效；必须写成「来自会话 web，工作区 …」 |
 | 信任提示不能直接回车 | 2.1.319 默认选中 `No, exit`，回车会让 claude 以 code=1 退出；必须先下移到 `Yes`，确认选中项后再回车 |
 | 状态感知用 hook | `Stop` / `PreToolUse` / `PostToolUse` 在 PTY 会话中正常触发，不需要解析 transcript |
+| 提交确认要多信号 | 只看 `esc to interrupt` 会在 thinking 阶段误判；结合 hook 事件，超时后补发一次回车 |
+| 并发首条消息需要重试 | 5 个会话同时启动时首帧重绘更严重；确认失败会保持未投递并在下一轮重试，实测 3 轮 15/15 |
 
 细节与原始数据见 `../cc-wrapped/ctm-verified-findings.md`。
 
@@ -291,7 +293,7 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 - 讨论频道的组隔离与消息一致，但它不是安全边界：同一用户仍可直接读写 `~/.ctm/rooms/`。
 - 信任提示的自动选择依赖当前布局（`❯` 紧邻选项文本）。布局变化时不猜按键，会话会停在启动阶段直到超时，需要用户手动处理。
 - 项目目录自带 `.mcp.json` 时，claude 启动会要求确认是否加载其中的 MCP server。MCP server 可以执行任意代码，宿主**不代替用户授权**，会话停在 `needs-input`，需要用户按键确认一次。
-- 首条消息：提交确认现在同时看屏幕与 hook 事件，超时后会补发一次回车。2.1.319 单会话冒烟 6/6 成功；5 会话并发启动时实测仍有 4/5 首条失败，并发场景需要重新验证。
+- 首条消息：2.1.319 下 5 会话并发启动实测 3 轮 15/15 送达；单会话连续 5 轮投递 5/5。提交确认同时看屏幕与 hook 事件，超时后会补发一次回车。
 - 按需启动依赖 `meta.json`：`ctm kill` 会删除它，被 kill 掉的会话无法再由其他会话拉起。要保留"随时可唤醒"能力请直接关闭窗口（Ctrl+C），不要用 `ctm kill`。
 - 按需启动默认新开终端窗口，优先用 `wt.exe`，缺失时回退 `cmd.exe /c start`。无桌面会话（纯后台）环境下只能用 `CTM_LAUNCH_MODE=background`，此时没有可视窗口。
 - 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。

@@ -48,6 +48,7 @@ export class Session {
     this.cols = opts.cols || 120;
     this.rows = opts.rows || 40;
     this.settleMs = opts.settleMs ?? 3000;
+    this.quiet = opts.quiet === true;
     this.groups = normalizeGroups(opts.groups);
     this.claudeArgs = opts.claudeArgs || [];
 
@@ -99,7 +100,7 @@ export class Session {
     );
 
     this.proc.onData((d) => {
-      process.stdout.write(d);
+      if (!this.quiet) process.stdout.write(d);
       this.screen.append(d);
     });
     this.proc.onExit(({ exitCode }) => {

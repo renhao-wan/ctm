@@ -27,6 +27,7 @@
     "test:m3": "node test/m3-lazy-launch.mjs",
     "test:m4": "node test/m4-wrap.mjs",
     "test:m5": "node test/m5-permission.mjs",
+    "test:m6": "node test/m6-concurrent.mjs && node test/m6-unicode.mjs && node test/m6-stability.mjs",
     "prepack": "npm test"
   },
   "keywords": [
