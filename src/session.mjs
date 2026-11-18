@@ -26,7 +26,7 @@ export function detectGitDirs() {
   for (const root of ['D:\\IDEAjava\\Git', 'C:\\Program Files\\Git']) {
     candidates.push(path.join(root, 'usr', 'bin'), path.join(root, 'bin'));
   }
-  return candidates.filter((d) => {
+  return [...new Set(candidates)].filter((d) => {
     try {
       return fs.statSync(d).isDirectory();
     } catch {

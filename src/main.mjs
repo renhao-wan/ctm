@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
-import { Session } from './session.mjs';
+import { Session, detectGitDirs } from './session.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { ctmHome, listSessions, readMeta, isAlive, removeMeta, writeMeta } from './registry.mjs';
 import { launchSession } from './launch.mjs';
@@ -482,8 +482,16 @@ async function cmdDoctor() {
   }
 
   try {
-    execFileSync('git', ['--version'], { encoding: 'utf8', timeout: 15000 });
-    console.log(`Git             ${execFileSync('git', ['--version'], { encoding: 'utf8' }).trim()}`);
+    const gitVer = execFileSync('git', ['--version'], { encoding: 'utf8', timeout: 15000 }).trim();
+    console.log(`Git             ${gitVer}`);
+    // 已有插件 hook 的 run-hook.cmd 需要 bash；找不到时给出修复提示
+    const gitBins = detectGitDirs();
+    if (gitBins.length) {
+      console.log(`Git Bash 路径   ${gitBins.join(';')}`);
+    } else {
+      ok = false;
+      console.log('Git Bash 路径   未找到 usr/bin ← 插件 hook 可能失败，请安装 Git for Windows');
+    }
   } catch {
     ok = false;
     console.log('Git             未找到 ← 已有插件 hook 可能失败');
