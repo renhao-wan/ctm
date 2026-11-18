@@ -12,11 +12,23 @@
 // 宿主启动后自行从收件箱补投。
 import { createInterface } from 'node:readline';
 import { listSessions, readMeta, isAlive } from './registry.mjs';
-import { enqueue, pendingMessages, readDelivered } from './inbox.mjs';
+import { enqueue, findMessage, pendingMessages, readDelivered } from './inbox.mjs';
 import { launchSession } from './launch.mjs';
 import { visibleTo, describeGroups } from './groups.mjs';
+import {
+  appendSay,
+  createRoom,
+  listRooms,
+  readMessages,
+  readRoom,
+  roomVisible,
+  startRound,
+  writeSummary,
+} from './rooms.mjs';
 
-const SENDER = process.env.CTM_SESSION_NAME || 'claude';
+// 没有 CTM_SESSION_NAME 说明调用者是用户本人（普通 claude 或 CLI）。
+// 不要把它伪装成一个名叫 claude 的会话，否则目标端无法区分人与会话。
+const SENDER = process.env.CTM_SESSION_NAME || '用户';
 const SENDER_CWD = process.cwd();
 
 /** 当前会话的身份。没有 CTM_SESSION_NAME 表示操作者是人（普通 claude 或 CLI）。 */
@@ -104,13 +116,46 @@ const TOOLS = [
       required: ['to', 'text'],
     },
   },
+  {
+    name: 'ctm_reply',
+    description:
+      '回复收件箱里某条消息。id 是消息前缀中 # 后面的 8 位短 id，或完整 id。回复会发给原发送会话；对方离线时入队并尝试拉起。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '消息 id 或短 id' },
+        text: { type: 'string', description: '回复内容' },
+      },
+      required: ['id', 'text'],
+    },
+  },
+  {
+    name: 'ctm_room',
+    description:
+      '组内讨论频道。action=list 列出可见频道；create 创建频道（room、topic，可选 group）；say 追加发言（room、text）；show 查看频道与最近发言（room）；start 发起一轮讨论并把议题投递给同组成员（room，可选 text 作为本轮议题）；summary 生成并返回 summary.md。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'create', 'say', 'show', 'start', 'summary'],
+          description: '要执行的动作',
+        },
+        room: { type: 'string', description: '频道名' },
+        topic: { type: 'string', description: 'create 时的频道议题' },
+        group: { type: 'string', description: 'create 时绑定到哪个组，默认取当前会话的组' },
+        text: { type: 'string', description: 'say 的发言内容；start 时作为本轮议题' },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 function describe(m) {
   const alive = isAlive(m.pid);
   const status = alive ? m.status || 'unknown' : 'offline';
   const unread = pendingMessages(m.name, readDelivered(m.name)).length;
-  return {
+  const row = {
     名称: m.name,
     状态: status,
     组: describeGroups(m),
@@ -118,6 +163,9 @@ function describe(m) {
     目录: m.cwd,
     版本: m.version || '',
   };
+  if (status === 'needs-input') row.提示 = '会话停在确认提示上，需要用户在该窗口按键';
+  if (status === 'unknown') row.提示 = '界面未识别，投递已暂停';
+  return row;
 }
 
 function ensureRunning(name) {
@@ -197,6 +245,126 @@ function handleCall(id, name, args) {
         return toolResult(id, JSON.stringify({ ok: true, name: args.name, note: '会话已在运行' }, null, 2));
       }
       return toolResult(id, `启动失败：${started.reason}`, true);
+    }
+
+    if (name === 'ctm_reply') {
+      const me = meMeta();
+      if (!me.name) {
+        return toolResult(id, '当前调用没有会话身份，reply 需要在托管会话内使用', true);
+      }
+      const msg = findMessage(me.name, args.id);
+      if (!msg) return toolResult(id, `找不到消息：${args.id}`, true);
+      if (!msg.from || msg.from === '用户') {
+        return toolResult(id, '这条消息来自用户本人，没有可回复的会话', true);
+      }
+      if (!reachable(msg.from).ok) {
+        return toolResult(id, `来源会话不存在或不在当前可见组内：${msg.from}`, true);
+      }
+      const out = enqueue({
+        to: msg.from,
+        from: SENDER,
+        fromCwd: SENDER_CWD,
+        text: args.text,
+        kind: 'reply',
+      });
+      const started = ensureRunning(msg.from);
+      return toolResult(
+        id,
+        JSON.stringify(
+          { ok: true, id: out.id, to: out.to, target: started, note: startNote(started) },
+          null,
+          2,
+        ),
+      );
+    }
+
+    if (name === 'ctm_room') {
+      const me = meMeta();
+      const action = args.action;
+
+      if (action === 'list') {
+        const rooms = listRooms(me).map((r) => ({
+          ...r,
+          消息数: readMessages(r.name, 0).length,
+        }));
+        return toolResult(id, JSON.stringify(rooms, null, 2));
+      }
+
+      if (!args.room) return toolResult(id, '缺少参数：room', true);
+
+      if (action === 'create') {
+        const group = args.group || (me.groups || [])[0] || '';
+        // 不能把频道挂到自己看不见的组上
+        if (me.name && group && !(me.groups || []).includes(group)) {
+          return toolResult(id, `不能创建其他组的频道：${group}`, true);
+        }
+        const room = createRoom({
+          name: args.room,
+          topic: args.topic || '',
+          group,
+          createdBy: me.name || '用户',
+        });
+        return toolResult(id, JSON.stringify(room, null, 2));
+      }
+
+      const room = readRoom(args.room);
+      if (!room || !roomVisible(me, room)) {
+        return toolResult(id, `频道不存在或不在当前可见组内：${args.room}`, true);
+      }
+
+      if (action === 'say') {
+        const msg = appendSay({
+          room: room.name,
+          from: SENDER,
+          fromCwd: SENDER_CWD,
+          text: args.text,
+        });
+        return toolResult(id, JSON.stringify(msg, null, 2));
+      }
+
+      if (action === 'show') {
+        return toolResult(
+          id,
+          JSON.stringify({ ...room, messages: readMessages(room.name, 50) }, null, 2),
+        );
+      }
+
+      if (action === 'start') {
+        const targets = listSessions()
+          .filter((m) => m.name !== me.name)
+          .filter((m) => visibleTo(me, m))
+          .filter((m) => !room.group || (Array.isArray(m.groups) && m.groups.includes(room.group)))
+          .map((m) => m.name);
+        const r = startRound({
+          room: room.name,
+          issue: args.text || '',
+          from: SENDER,
+          fromCwd: SENDER_CWD,
+          targets,
+        });
+        return toolResult(
+          id,
+          JSON.stringify(
+            {
+              ok: true,
+              ...r,
+              targets,
+              note: targets.length
+                ? '议题已写入各成员收件箱，离线成员会在启动后收到'
+                : '同组没有其他会话，议题只记录在频道里',
+            },
+            null,
+            2,
+          ),
+        );
+      }
+
+      if (action === 'summary') {
+        const file = writeSummary(room.name);
+        return toolResult(id, JSON.stringify({ ok: true, file }, null, 2));
+      }
+
+      return toolResult(id, `未知动作：${action}`, true);
     }
 
     return toolResult(id, `未知工具：${name}`, true);

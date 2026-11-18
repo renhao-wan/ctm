@@ -87,5 +87,20 @@ check('注入文本带长前缀', () => {
   assert.ok(t.endsWith('你好'));
 });
 
+check('无会话身份时标记为用户而不是会话', () => {
+  const t = formatMessage({ from: '用户', fromCwd: 'D:/projects/api', text: '看下日志' });
+  assert.ok(t.startsWith('[来自用户，工作区 D:/projects/api]'));
+});
+
+check('消息前缀带可回复的短 id', () => {
+  const t = formatMessage({
+    id: '7f3a1c2d-0000-4000-8000-000000000000',
+    from: 'web',
+    fromCwd: 'D:/projects/web',
+    text: '你好',
+  });
+  assert.ok(t.includes('#7f3a1c2d'));
+});
+
 console.log(`\nRESULT=${fail === 0 ? 'INBOX_OK' : 'INBOX_FAIL'} pass=${pass} fail=${fail}`);
 process.exit(fail === 0 ? 0 : 1);

@@ -13,6 +13,7 @@ process.env.CTM_HOME = CTM_HOME;
 
 const { writeMeta } = await import('../src/registry.mjs');
 const { enqueue, readInbox } = await import('../src/inbox.mjs');
+const { createRoom } = await import('../src/rooms.mjs');
 
 const RECORD = path.join(WORK, 'argv.json');
 const FAKE_ENTRY = path.join(WORK, 'fake-entry.mjs');
@@ -107,10 +108,18 @@ await check('initialize 返回 ctm 服务信息', async () => {
   assert.equal(r.result.serverInfo.name, 'ctm');
 });
 
-await check('tools/list 暴露 5 个工具', async () => {
+await check('tools/list 暴露 7 个工具', async () => {
   const r = await rpc('tools/list', {});
   const tools = r.result.tools.map((t) => t.name).sort();
-  assert.deepEqual(tools, ['ctm_ask', 'ctm_list', 'ctm_start', 'ctm_status', 'ctm_tell']);
+  assert.deepEqual(tools, [
+    'ctm_ask',
+    'ctm_list',
+    'ctm_reply',
+    'ctm_room',
+    'ctm_start',
+    'ctm_status',
+    'ctm_tell',
+  ]);
 });
 
 await check('ctm_list 只显示同组会话', async () => {
@@ -195,6 +204,111 @@ await check('ctm_ask 标记消息类型为 ask', async () => {
   assert.equal(parsed.ok, true);
   const inbox = readInbox('busy');
   assert.equal(inbox[inbox.length - 1].kind, 'ask');
+});
+
+await check('ctm_reply 按短 id 回复来源会话', async () => {
+  enqueue({ to: 'sender-a', from: 'busy', text: '帮我看看登录' });
+  const mine = readInbox('sender-a');
+  const msg = mine[mine.length - 1];
+  const { isError, parsed } = await call('ctm_reply', {
+    id: msg.id.slice(0, 8),
+    text: '收到，马上看',
+  });
+  assert.equal(isError, false);
+  assert.equal(parsed.to, 'busy');
+  const inbox = readInbox('busy');
+  assert.equal(inbox.at(-1).kind, 'reply');
+  assert.equal(inbox.at(-1).from, 'sender-a');
+});
+
+await check('ctm_reply 不能回复用户消息', async () => {
+  enqueue({ to: 'sender-a', from: '用户', text: '你自己看下' });
+  const mine = readInbox('sender-a');
+  const msg = mine[mine.length - 1];
+  const { isError, text } = await call('ctm_reply', { id: msg.id, text: 'ok' });
+  assert.equal(isError, true);
+  assert.match(text, /来自用户本人/);
+});
+
+await check('ctm_reply 找不到消息时报错', async () => {
+  const { isError, text } = await call('ctm_reply', { id: 'deadbeef', text: 'x' });
+  assert.equal(isError, true);
+  assert.match(text, /找不到消息/);
+});
+
+await check('ctm_room create 绑定当前会话的组', async () => {
+  const { isError, parsed } = await call('ctm_room', {
+    action: 'create',
+    room: 'design',
+    topic: '接口怎么改',
+  });
+  assert.equal(isError, false);
+  assert.equal(parsed.group, 'frontend');
+  assert.equal(parsed.createdBy, 'sender-a');
+});
+
+await check('ctm_room say 追加发言并保留来源', async () => {
+  const { isError, parsed } = await call('ctm_room', {
+    action: 'say',
+    room: 'design',
+    text: '先加版本号',
+  });
+  assert.equal(isError, false);
+  assert.equal(parsed.from, 'sender-a');
+  assert.equal(parsed.round, 0);
+});
+
+await check('ctm_room show 返回最近发言', async () => {
+  const { parsed } = await call('ctm_room', { action: 'show', room: 'design' });
+  assert.equal(parsed.name, 'design');
+  assert.equal(parsed.messages.at(-1).text, '先加版本号');
+});
+
+await check('ctm_room start 只投递给同组成员', async () => {
+  const { isError, parsed } = await call('ctm_room', {
+    action: 'start',
+    room: 'design',
+    text: '第一轮：字段命名',
+  });
+  assert.equal(isError, false);
+  assert.equal(parsed.round, 1);
+  assert.ok(parsed.sent.includes('busy'));
+  assert.ok(!parsed.sent.includes('outsider'));
+  assert.ok(!parsed.sent.includes('orphan'));
+  const inbox = readInbox('busy');
+  assert.equal(inbox.at(-1).kind, 'room');
+  assert.match(inbox.at(-1).text, /讨论 design · 第 1 轮/);
+});
+
+await check('ctm_room 拒绝其他组的频道', async () => {
+  createRoom({ name: 'back-room', topic: '后端', group: 'backend' });
+  const { isError, text } = await call('ctm_room', { action: 'show', room: 'back-room' });
+  assert.equal(isError, true);
+  assert.match(text, /不存在或不在当前可见组内/);
+});
+
+await check('ctm_room 拒绝创建其他组的频道', async () => {
+  const { isError, text } = await call('ctm_room', {
+    action: 'create',
+    room: 'bad',
+    topic: 'x',
+    group: 'backend',
+  });
+  assert.equal(isError, true);
+  assert.match(text, /不能创建其他组的频道/);
+});
+
+await check('ctm_room summary 生成文件', async () => {
+  const { parsed } = await call('ctm_room', { action: 'summary', room: 'design' });
+  assert.equal(parsed.ok, true);
+  assert.ok(fs.existsSync(parsed.file));
+});
+
+await check('ctm_room list 只显示同组频道', async () => {
+  const { parsed } = await call('ctm_room', { action: 'list' });
+  const names = parsed.map((r) => r.name);
+  assert.ok(names.includes('design'));
+  assert.ok(!names.includes('back-room'));
 });
 
 proc.stdin.end();

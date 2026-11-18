@@ -8,6 +8,17 @@ import { Session } from './session.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { ctmHome, listSessions, readMeta, isAlive, removeMeta, writeMeta } from './registry.mjs';
 import { launchSession } from './launch.mjs';
+import { pendingMessages, readDelivered } from './inbox.mjs';
+import {
+  appendSay,
+  createRoom,
+  listRooms,
+  readMessages,
+  readRoom,
+  roomVisible,
+  startRound,
+  writeSummary,
+} from './rooms.mjs';
 import {
   describeGroups,
   resolveGroups,
@@ -19,10 +30,14 @@ function usage() {
   console.log(`ctm — Claude Terminal Multiplexer
 
 用法：
-  ctm new [name] [--cwd <path>] [--group <g>] [--settle <ms>]   启动托管会话
+  ctm new [name] [--cwd <path>] [--group <g>] [--settle <ms>] [-- <claude 参数>]
+                                                  启动托管会话
+  ctm resume [sessionId] [--group <g>]            在新托管会话中恢复对话
   ctm start <name>                                重新拉起已存在但离线的会话
   ctm list                                        列出托管会话
   ctm kill <name>                                 结束会话
+  ctm room <list|create|say|show|start|summary> <频道> [内容]
+                                                  组内讨论频道
   ctm doctor                                      环境自检
   ctm wrap [claude 参数]                          包装入口（给 claude 命令用）
   ctm install-wrap                                生成 claude 包装脚本
@@ -43,7 +58,11 @@ function parseArgs(argv) {
     else if (a === '--group') (args.groups ||= []).push(argv[++i]);
     else if (a.startsWith('--group=')) (args.groups ||= []).push(a.slice('--group='.length));
     else if (a === '--debug') args.debug = true;
-    else args._.push(a);
+    else if (a === '--') {
+      // -- 之后原样交给 claude：ctm new web -- --resume <id>
+      args.claudeArgs = argv.slice(i + 1);
+      break;
+    } else args._.push(a);
   }
   return args;
 }
@@ -99,7 +118,32 @@ function cmdNew(args) {
     process.exit(1);
   }
   const groups = resolveGroups({ cliGroups: args.groups, cwd });
-  startHost({ name, cwd, groups, settleMs: args.settle ?? 3000, debug: args.debug });
+  startHost({
+    name,
+    cwd,
+    groups,
+    settleMs: args.settle ?? 3000,
+    claudeArgs: args.claudeArgs || [],
+    debug: args.debug,
+  });
+}
+
+/** 在新的托管会话里恢复历史对话。不是接管原进程。 */
+function cmdResume(args) {
+  const sessionId = args._[1];
+  const cwd = path.resolve(process.cwd());
+  const base = sessionId ? `resume-${sessionId.slice(0, 8)}` : `resume-${Date.now().toString(36)}`;
+  const name = uniqueName(base);
+  const groups = resolveGroups({ cliGroups: args.groups, cwd });
+  const claudeArgs = sessionId ? ['--resume', sessionId] : ['--resume'];
+  startHost({
+    name,
+    cwd,
+    groups,
+    settleMs: args.settle ?? 3000,
+    claudeArgs,
+    debug: args.debug,
+  });
 }
 
 /** 同名会话还活着就加后缀；已离线则复用名字（连同收件箱）。 */
@@ -219,19 +263,109 @@ function cmdList() {
     console.log('（没有托管会话）');
     return;
   }
-  const rows = sessions.map((m) => ({
-    名称: m.name,
-    状态: isAlive(m.pid) ? m.status || 'alive' : 'offline',
-    组: describeGroups(m),
-    PID: m.pid,
-    目录: m.cwd,
-    版本: m.version || '',
-  }));
+  const rows = sessions.map((m) => {
+    const alive = isAlive(m.pid);
+    const status = alive ? m.status || 'alive' : 'offline';
+    const row = {
+      名称: m.name,
+      状态: status === 'needs-input' ? 'needs-input ⚠' : status,
+      组: describeGroups(m),
+      未读: pendingMessages(m.name, readDelivered(m.name)).length,
+      PID: m.pid,
+      目录: m.cwd,
+      版本: m.version || '',
+    };
+    if (status === 'needs-input') row.提示 = '等待用户在该窗口确认';
+    return row;
+  });
   console.table(rows);
 }
 
-function cmdKill(args) {
-  const name = args._[1];
+function cmdRoom(args) {
+  // CLI 操作者是人，没有会话身份，不受组可见性限制
+  const me = { name: '', groups: [] };
+  const action = args._[1] || 'list';
+  const name = args._[2];
+  const rest = args._.slice(3).join(' ');
+
+  if (action === 'list') {
+    const rooms = listRooms(me);
+    if (rooms.length === 0) {
+      console.log('（没有讨论频道）');
+      return;
+    }
+    console.table(
+      rooms.map((r) => ({
+        频道: r.name,
+        组: r.group || '(独立)',
+        轮次: r.round || 0,
+        消息数: readMessages(r.name, 0).length,
+        议题: r.topic || '',
+        更新: r.updatedAt || '',
+      })),
+    );
+    return;
+  }
+
+  if (!name) {
+    console.error('用法：ctm room <list|create|say|show|start|summary> <频道> [内容]');
+    process.exit(1);
+  }
+
+  if (action === 'create') {
+    const group = (args.groups || [])[0] || '';
+    console.log(
+      JSON.stringify(createRoom({ name, topic: rest, group, createdBy: '用户' }), null, 2),
+    );
+    return;
+  }
+
+  const room = readRoom(name);
+  if (!room || !roomVisible(me, room)) {
+    console.error(`[ctm] 频道不存在：${name}`);
+    process.exit(1);
+  }
+
+  if (action === 'say') {
+    if (!rest) {
+      console.error('用法：ctm room say <频道> <内容>');
+      process.exit(1);
+    }
+    console.log(
+      JSON.stringify(appendSay({ room: room.name, from: '用户', text: rest }), null, 2),
+    );
+    return;
+  }
+
+  if (action === 'show') {
+    console.log(JSON.stringify({ ...room, messages: readMessages(room.name, 50) }, null, 2));
+    return;
+  }
+
+  if (action === 'start') {
+    const targets = listSessions()
+      .filter((m) => !room.group || (Array.isArray(m.groups) && m.groups.includes(room.group)))
+      .map((m) => m.name);
+    console.log(
+      JSON.stringify(
+        startRound({ room: room.name, issue: rest, from: '用户', targets }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (action === 'summary') {
+    console.log(writeSummary(room.name));
+    return;
+  }
+
+  console.error(`未知动作：${action}`);
+  process.exit(1);
+}
+
+function cmdKill(args) {  const name = args._[1];
   if (!name) {
     console.error('用法：ctm kill <name>');
     process.exit(1);
@@ -266,6 +400,50 @@ async function cmdDoctor() {
   console.log(`CTM_HOME        ${ctmHome()}`);
 
   let ok = true;
+
+  // 数据目录必须可写：注册表、收件箱、讨论频道都落在这里
+  try {
+    fs.mkdirSync(ctmHome(), { recursive: true });
+    const probe = path.join(ctmHome(), `.doctor-${process.pid}`);
+    fs.writeFileSync(probe, 'ok');
+    fs.rmSync(probe, { force: true });
+    console.log('数据目录        可写');
+  } catch (e) {
+    ok = false;
+    console.log(`数据目录        不可写：${e.message} ← 需要处理`);
+  }
+
+  // 包装脚本是可选能力，缺失不算失败
+  const wrapDir = path.join(ctmHome(), 'bin');
+  const wrapFile = path.join(wrapDir, process.platform === 'win32' ? 'claude.cmd' : 'claude');
+  if (fs.existsSync(wrapFile)) {
+    const inPath = (process.env.PATH || '')
+      .split(path.delimiter)
+      .filter(Boolean)
+      .some((p) => {
+        try {
+          return path.resolve(p).toLowerCase() === path.resolve(wrapDir).toLowerCase();
+        } catch {
+          return false;
+        }
+      });
+    console.log(
+      `claude 包装     ${wrapFile}${inPath ? '（已在 PATH）' : '（未在 PATH，敲 claude 仍是普通会话）'}`,
+    );
+  } else {
+    console.log('claude 包装     未安装（ctm install-wrap 可生成）');
+  }
+
+  if (process.platform === 'win32') {
+    let hasWt = false;
+    try {
+      execFileSync('where', ['wt.exe'], { stdio: 'ignore' });
+      hasWt = true;
+    } catch {
+      // 没有 Windows Terminal 不是错误
+    }
+    console.log(`wt.exe          ${hasWt ? '可用（按需启动开新窗口）' : '未找到（回退 cmd.exe /c start）'}`);
+  }
 
   try {
     const r = resolveClaudeBin();
@@ -344,8 +522,14 @@ switch (cmd) {
   case 'start':
     cmdStart(args);
     break;
+  case 'resume':
+    cmdResume(args);
+    break;
   case 'list':
     cmdList();
+    break;
+  case 'room':
+    cmdRoom(args);
     break;
   case 'kill':
     cmdKill(args);

@@ -86,7 +86,19 @@ export function markDelivered(name, id) {
 /** 注入到目标会话的文本。前缀必须足够长，短前缀无法让模型识别来源。 */
 export function formatMessage(msg) {
   const where = msg.fromCwd ? `，工作区 ${msg.fromCwd}` : '';
-  return `[来自会话 ${msg.from}${where}] ${msg.text}`;
+  const who = msg.from === '用户' ? '用户' : `会话 ${msg.from}`;
+  // 短 id 让模型能引用某条消息（/ctm:reply <id> <text>）
+  const ref = msg.id ? ` · #${String(msg.id).slice(0, 8)}` : '';
+  return `[来自${who}${where}${ref}] ${msg.text}`;
+}
+
+/** 按完整 id 或短 id 前缀在当前会话的收件箱里找消息。 */
+export function findMessage(name, idPrefix) {
+  const key = String(idPrefix || '').trim();
+  if (!key) return null;
+  return (
+    readInbox(name).find((m) => m.id === key || String(m.id).startsWith(key)) || null
+  );
 }
 
 /** 未投递的消息，按写入顺序。 */
