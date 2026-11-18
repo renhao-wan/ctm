@@ -102,5 +102,14 @@ check('消息前缀带可回复的短 id', () => {
   assert.ok(t.includes('#7f3a1c2d'));
 });
 
+check('超过 8KB 的消息被截断并保留原文', () => {
+  const big = 'x'.repeat(9000);
+  const msg = enqueue({ to: 'b', from: 'a', text: big });
+  assert.ok(msg.text.includes('已截断'));
+  assert.ok(Buffer.byteLength(msg.text, 'utf8') < Buffer.byteLength(big, 'utf8'));
+  assert.ok(msg.truncatedFrom && fs.existsSync(msg.truncatedFrom));
+  assert.equal(fs.readFileSync(msg.truncatedFrom, 'utf8'), big);
+});
+
 console.log(`\nRESULT=${fail === 0 ? 'INBOX_OK' : 'INBOX_FAIL'} pass=${pass} fail=${fail}`);
 process.exit(fail === 0 ? 0 : 1);

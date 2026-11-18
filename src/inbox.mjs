@@ -24,21 +24,42 @@ export class UnknownSessionError extends Error {
   }
 }
 
+/** 单条消息正文的注入上限。超过时截断，原文落盘（设计 7.3）。 */
+export const MAX_TEXT_BYTES = 8192;
+
 /** 投递一条消息。目标离线也允许：消息留在收件箱，等会话重新启动后补投。 */
 export function enqueue({ to, from, fromCwd, text, kind = 'tell' }) {
   const meta = readMeta(to);
   if (!meta) throw new UnknownSessionError(to);
-  if (!text || !text.trim()) throw new Error('消息内容为空');
+  const input = String(text ?? '');
+  if (!input.trim()) throw new Error('消息内容为空');
+
+  const id = crypto.randomUUID();
+  let content = input;
+  let truncatedFrom = '';
+  if (Buffer.byteLength(input, 'utf8') > MAX_TEXT_BYTES) {
+    const dir = path.join(sessionDir(to), 'attachments');
+    fs.mkdirSync(dir, { recursive: true });
+    truncatedFrom = path.join(dir, `${id}.txt`);
+    fs.writeFileSync(truncatedFrom, input);
+    // 按字节截断，去掉被切断的多字节字符留下的替换符
+    const cut = Buffer.from(input, 'utf8')
+      .subarray(0, MAX_TEXT_BYTES)
+      .toString('utf8')
+      .replace(/�+$/, '');
+    content = `${cut}\n…（消息超过 ${MAX_TEXT_BYTES} 字节，已截断；原文见 ${truncatedFrom}）`;
+  }
 
   const msg = {
-    id: crypto.randomUUID(),
+    id,
     from: from || 'unknown',
     fromCwd: fromCwd || '',
     to,
     kind,
-    text,
+    text: content,
     createdAt: new Date().toISOString(),
   };
+  if (truncatedFrom) msg.truncatedFrom = truncatedFrom;
   fs.mkdirSync(sessionDir(to), { recursive: true });
   fs.appendFileSync(inboxPath(to), JSON.stringify(msg) + '\n');
   return msg;
