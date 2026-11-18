@@ -1,7 +1,7 @@
 // M5 验证：运行期工具权限提示会被识别为 needs-input。
 //
 // 不启动 CLI（它需要 TTY），直接实例化 Session。
-// 让 claude 使用 Write 工具写一个文件：默认权限模式下这会弹出确认提示，
+// 让 claude 使用 Write 工具写一个文件：手动权限模式下这会弹出确认提示，
 // 宿主应在不依赖 Stop 的情况下把状态切到 needs-input。
 import fs from 'node:fs';
 import os from 'node:os';
