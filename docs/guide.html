@@ -303,27 +303,30 @@
 
   <header>
     <h1>ctm 使用指南 <span>·</span> 跟着动画走一遍</h1>
-    <p>不要读文档，点「播放」，看三个场景就行。每个场景 4～6 步。</p>
+    <p>不要读文档，点「播放」，看五个场景就行。每个场景 4～6 步。</p>
   </header>
 
   <div class="prereq">
     <div><b>1 · 谁能当接收方</b>必须用 <code>ctm new</code> 启动的会话。<br><small>普通 <code>claude</code> 只能发信，不能收信。</small></div>
     <div><b>2 · 谁能当发送方</b>任意 Claude Code 会话，只要装了 ctm 插件。<br><small>装法见页面底部。</small></div>
     <div><b>3 · 怎么算送达</b>消息变成对方输入框里的一条用户输入并回车。<br><small>不是留言板，是真注入。</small></div>
+    <div><b>4 · 谁能看见谁</b>启动时用 <code>--group</code> 分组，组内互相可见，组间双向隔离。<br><small>不带组的会话只看得见自己。</small></div>
   </div>
 
   <nav class="tabs">
     <button data-scene="0" class="active">① 开一个能收信的会话</button>
     <button data-scene="1">② B 开着：直接送达</button>
     <button data-scene="2">③ B 没开：A 把 B 拉起来</button>
+    <button data-scene="3">④ 分组：谁看得见谁</button>
+    <button data-scene="4">⑤ 敲 claude 就自动托管</button>
   </nav>
 
   <div class="stage">
     <div class="diagram" id="diagram">
       <div class="col">
         <div class="node" id="nodeA">
-          <b>终端 A</b>
-          <small>你的 claude</small>
+          <b id="nameA">终端 A</b>
+          <small id="subA">你的 claude</small>
           <span class="badge" id="badgeA">online</span>
         </div>
       </div>
@@ -336,8 +339,8 @@
       </div>
       <div class="col">
         <div class="node offline" id="nodeB">
-          <b>终端 B</b>
-          <small>ctm 宿主 + claude</small>
+          <b id="nameB">终端 B</b>
+          <small id="subB">ctm 宿主 + claude</small>
           <span class="badge" id="badgeB">未启动</span>
         </div>
       </div>
@@ -375,6 +378,16 @@
         <td>—</td>
       </tr>
       <tr>
+        <td>让会话只和指定组互通</td>
+        <td><code>ctm new web --group frontend</code></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>让 <code>claude</code> 命令自动变成托管会话</td>
+        <td><code>ctm install-wrap</code><br><small style="color:#8b98a8">然后把 <code>~/.ctm/bin</code> 前置到 PATH</small></td>
+        <td>—</td>
+      </tr>
+      <tr>
         <td>看看有哪些会话、谁离线</td>
         <td><code>ctm list</code></td>
         <td><code>/ctm:list</code></td>
@@ -407,7 +420,7 @@
     </tbody>
   </table>
 
-  <h2>三个最常见的误会</h2>
+  <h2>五个最常见的误会</h2>
   <div class="myths">
     <div class="myth">
       <b>“我敲 claude 就能进群聊了吧？”</b>
@@ -420,6 +433,14 @@
     <div class="myth">
       <b>“那我先 ctm kill 掉 B，省点资源？”</b>
       <span>别。<code>ctm kill</code> 会删掉 B 的注册信息，就再也找不到它了。省资源请直接关窗口或 Ctrl+C。</span>
+    </div>
+    <div class="myth">
+      <b>“分组是不是一道安全边界？”</b>
+      <span>不是。它约束的是会话之间的自动传播，同一用户仍然可以直接读写 <code>~/.ctm/</code>。它防的是误串扰，不是防人。</span>
+    </div>
+    <div class="myth">
+      <b>“install-wrap 之后，所有 claude 调用都被托管了吧？”</b>
+      <span>只有交互式启动才托管。<code>--version</code>、<code>-p</code>、<code>mcp</code> 等非交互用法原样透传，脚本和 CI 不受影响。</span>
     </div>
   </div>
 
@@ -589,6 +610,131 @@
         },
       ],
     },
+    {
+      title: '场景四 · 分组：a,b,c 与 d,e 互相看不见',
+      steps: [
+        {
+          lines: [
+            { t: '# 终端 1', c: 'dim' },
+            { t: '$ ctm new a --group frontend', c: 'cmd' },
+            { t: '# 终端 2', c: 'dim' },
+            { t: '$ ctm new d --group backend', c: 'cmd' },
+          ],
+          aName: 'a · frontend', aSub: 'ctm 托管会话',
+          bName: 'd · backend', bSub: 'ctm 托管会话',
+          a: 'online', b: 'online',
+          tip: '<b>组在启动时确定。</b>同一个组名就是同一张“通讯录”。a、b、c 都写 <code>--group frontend</code>，d、e 写 <code>--group backend</code>。不传 <code>--group</code> 的会话自成一个独立组。',
+        },
+        {
+          lines: [
+            { t: '# 在 a 的会话里', c: 'dim' },
+            { t: '> /ctm:list', c: 'cmd' },
+            { t: '[ { 名称: "a", 组: "frontend" },', c: '' },
+            { t: '  { 名称: "b", 组: "frontend" },', c: '' },
+            { t: '  { 名称: "c", 组: "frontend" } ]', c: '' },
+          ],
+          aName: 'a · frontend', aSub: 'ctm 托管会话',
+          bName: 'd · backend', bSub: 'ctm 托管会话',
+          a: 'online', b: 'online',
+          flow: 'd、e 不在列表里',
+          tip: '<b>列表不是“过滤显示”，是根本读不到。</b>MCP server 用 <code>CTM_SESSION_NAME</code> 判断调用者身份，只返回组有交集的会话。跨组会话的名字和状态都不会出现。',
+        },
+        {
+          lines: [
+            { t: '# 在 a 的会话里', c: 'dim' },
+            { t: '> /ctm:ask d 接口字段改了吗？', c: 'cmd' },
+            { t: '(错误) 会话不存在或不在当前可见组内：d', c: 'warn' },
+          ],
+          packet: 'nodeA',
+          aName: 'a · frontend', aSub: 'ctm 托管会话',
+          bName: 'd · backend', bSub: 'ctm 托管会话',
+          a: 'online', b: 'online',
+          flow: '跨组请求被拒绝',
+          tip: '<b>看不见的地方也发不进去。</b>这就是“双向隔离”：列表被过滤，投递时还会再检查一次。错误文案统一写成“不存在或不在当前可见组内”，不告诉发送方 d 到底存不存在。',
+        },
+        {
+          lines: [
+            { t: '# 终端 3 —— 不带 --group', c: 'dim' },
+            { t: '$ ctm new f', c: 'cmd' },
+            { t: '> /ctm:list', c: 'cmd' },
+            { t: '[ { 名称: "f", 组: "(独立)", 未读: 0 } ]', c: '' },
+          ],
+          aName: 'f · (独立)', aSub: '只看得见自己',
+          bName: 'd · backend', bSub: 'ctm 托管会话',
+          a: 'online', b: 'online',
+          flow: 'f 只看得见自己',
+          tip: '<b>无组不等于“全部可见”。</b>无组会话是单成员组，只看得见自己。想加入协作，启动时带 <code>--group</code>；也可以在项目里放 <code>.ctm.json</code> 固定组名。',
+        },
+        {
+          lines: [
+            { t: '# b 同时属于两个组，成为桥接点', c: 'dim' },
+            { t: '$ ctm new b --group frontend --group shared', c: 'cmd' },
+            { t: '# 但跨组消息不会自动转发，需要 b 显式中转', c: 'warn' },
+          ],
+          aName: 'b · frontend,shared', aSub: '多组交集',
+          bName: 'd · backend', bSub: 'ctm 托管会话',
+          a: 'online', b: 'online',
+          flow: '组交集 = 桥接，但不自动转发',
+          tip: '<b>多组会话是桥接点，不是路由器。</b>它能同时看见两边，但消息不会自己从 frontend 流到 shared。跨组传播必须由 b 自己决定，避免消息在组之间悄悄扩散。',
+        },
+      ],
+    },
+    {
+      title: '场景五 · 敲 claude 就自动变成托管会话',
+      steps: [
+        {
+          lines: [
+            { t: '$ ctm install-wrap', c: 'cmd' },
+            { t: '[ctm] 已生成 C:\\Users\\你\\.ctm\\bin\\claude.cmd', c: 'ok' },
+            { t: '# 把该目录放到 PATH 最前面（只需一次）', c: 'dim' },
+            { t: '$ set PATH=%USERPROFILE%\\.ctm\\bin;%PATH%', c: 'cmd' },
+          ],
+          aName: '你的终端', aSub: 'PATH 已前置',
+          bName: '托管会话', bSub: '还没有启动',
+          b: 'offline',
+          flow: '安装包装脚本',
+          tip: '<b>它只生成一个脚本，不改 PATH。</b>包装脚本调用 <code>ctm wrap</code>，由 ctm 判断这次 <code>claude</code> 是交互式还是非交互式。',
+        },
+        {
+          lines: [
+            { t: '$ claude', c: 'cmd' },
+            { t: '[ctm] 交互式启动 → ctm new my-app', c: 'warn' },
+            { t: '[ctm] my-app: ready', c: 'ok' },
+          ],
+          aName: '你的终端', aSub: '敲 claude',
+          bName: 'my-app', bSub: 'ctm 宿主 + claude',
+          a: 'online', b: 'online',
+          flow: 'claude → 自动托管',
+          tip: '<b>不用再记 ctm new。</b>会话名取当前目录名；同名会话还在运行就自动加后缀（<code>my-app-2</code>）。启动后它就是一个能收信的会话。',
+        },
+        {
+          lines: [
+            { t: '$ claude --version', c: 'cmd' },
+            { t: '2.1.319 (Claude Code)', c: '' },
+            { t: '', c: '' },
+            { t: '$ claude -p "解释一下这个函数"', c: 'cmd' },
+            { t: '# 非交互用法原样透传，不创建托管会话', c: 'dim' },
+          ],
+          aName: '你的终端', aSub: '非交互用法',
+          bName: 'my-app', bSub: 'ctm 宿主 + claude',
+          a: 'online', b: 'online',
+          flow: '透传，不包装',
+          tip: '<b><code>--version</code>、<code>-p</code>、<code>mcp</code>、<code>config</code> 等用法直接透传</b>给真正的 claude。脚本、CI、别的工具调用 claude 时，不会被意外塞进一个终端宿主。',
+        },
+        {
+          lines: [
+            { t: '# 关键：解析 claude 时必须跳过这个包装脚本', c: 'dim' },
+            { t: '# 包装文件里写了 rem ctm-wrap 标记', c: 'dim' },
+            { t: '# 否则会变成 claude → ctm wrap → claude → … 递归', c: 'warn' },
+          ],
+          aName: '你的终端', aSub: '解析真实 claude',
+          bName: 'my-app', bSub: 'ctm 宿主 + claude',
+          a: 'online', b: 'online',
+          flow: '跳过包装，防止递归',
+          tip: '<b>这是包装方案最容易踩的坑。</b>解析器还要识别“node.exe + cli.js”这种安装形态——不能把 node.exe 本身当成 claude。两条规则都在 <code>src/resolve-claude.mjs</code> 里。',
+        },
+      ],
+    },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -677,6 +823,11 @@
     termTitle.textContent = sc.title;
     renderTerminal(stepIdx);
 
+    $('nameA').textContent = st.aName || '终端 A';
+    $('subA').textContent = st.aSub || '你的 claude';
+    $('nameB').textContent = st.bName || '终端 B';
+    $('subB').textContent = st.bSub || 'ctm 宿主 + claude';
+
     setBState(st.b || 'offline');
     if (st.a) {
       nodeA.classList.remove('offline');
@@ -703,14 +854,15 @@
       flowLabel.textContent = '宿主写入 B 的输入框';
     } else if (st.packet === 'nodeA') {
       inboxMeta.textContent = 'inbox.jsonl';
-      flowLabel.textContent = 'A 发起一条消息';
+      flowLabel.textContent = st.flow || 'A 发起一条消息';
     } else {
-      flowLabel.textContent = '消息方向';
+      inboxMeta.textContent = 'inbox.jsonl';
+      flowLabel.textContent = st.flow || '消息方向';
     }
 
     tip.innerHTML = st.tip;
 
-    stepLabel.textContent = `${sceneIdx + 1} / 3 · 第 ${stepIdx + 1} / ${sc.steps.length} 步`;
+    stepLabel.textContent = `${sceneIdx + 1} / ${scenes.length} · 第 ${stepIdx + 1} / ${sc.steps.length} 步`;
     prevBtn.disabled = sceneIdx === 0 && stepIdx === 0;
     nextBtn.disabled = sceneIdx === scenes.length - 1 && stepIdx === sc.steps.length - 1;
 

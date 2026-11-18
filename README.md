@@ -4,7 +4,7 @@
 
 > 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）、分组隔离与 claude 命令包装均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
 >
-> **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，三个场景可逐步播放）。
+> **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，五个场景可逐步播放）。
 
 ## 形态：插件 + 宿主
 
