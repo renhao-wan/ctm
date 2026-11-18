@@ -3,6 +3,8 @@
 用 ConPTY 托管 Claude Code 交互式会话，让同一台机器上的多个会话可以互相发消息、感知状态、按组讨论，而不修改 Claude Code 本身。
 
 > 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
+>
+> **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，三个场景可逐步播放）。
 
 ## 形态：插件 + 宿主
 
@@ -182,6 +184,8 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 ```text
 .claude-plugin/
   plugin.json           插件清单
+docs/
+  guide.html            动画版使用指南（浏览器直接打开）
 .mcp.json               插件内置 MCP server 的启动配置
 commands/
   list.md               /ctm:list
