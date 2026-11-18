@@ -14,9 +14,25 @@ import { createInterface } from 'node:readline';
 import { listSessions, readMeta, isAlive } from './registry.mjs';
 import { enqueue, pendingMessages, readDelivered } from './inbox.mjs';
 import { launchSession } from './launch.mjs';
+import { visibleTo, describeGroups } from './groups.mjs';
 
 const SENDER = process.env.CTM_SESSION_NAME || 'claude';
 const SENDER_CWD = process.cwd();
+
+/** 当前会话的身份。没有 CTM_SESSION_NAME 表示操作者是人（普通 claude 或 CLI）。 */
+function meMeta() {
+  const name = process.env.CTM_SESSION_NAME || '';
+  if (!name) return { name: '', groups: [] };
+  return readMeta(name) || { name, groups: [] };
+}
+
+/** 目标是否存在且对当前会话可见。不可见时统一按“不存在”处理，不泄露存在性。 */
+function reachable(name) {
+  const meta = readMeta(name);
+  if (!meta) return { ok: false, meta: null };
+  if (!visibleTo(meMeta(), meta)) return { ok: false, meta: null };
+  return { ok: true, meta };
+}
 
 function send(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -37,12 +53,18 @@ function toolResult(id, text, isError = false) {
 const TOOLS = [
   {
     name: 'ctm_list',
-    description: '列出所有由 ctm 托管的 Claude Code 会话，包括状态、工作目录和未读消息数。',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    description: '列出当前分组可见的托管 Claude Code 会话，包括状态、组、工作目录和未读消息数。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', description: '显示全部会话，忽略分组可见性（仅用于排查）' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'ctm_status',
-    description: '查看单个托管会话的详细状态。',
+    description: '查看单个同组托管会话的详细状态。',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string', description: '会话名' } },
@@ -51,7 +73,7 @@ const TOOLS = [
   },
   {
     name: 'ctm_start',
-    description: '启动一个已配置但当前未运行的托管会话。会在新的终端窗口中打开。',
+    description: '启动一个已配置但当前未运行的同组托管会话。会在新的终端窗口中打开。',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string', description: '会话名' } },
@@ -60,7 +82,7 @@ const TOOLS = [
   },
   {
     name: 'ctm_tell',
-    description: '向另一个托管会话发送单向通知。消息会在对方空闲时作为一条用户输入送达；对方离线时保存在收件箱并尝试启动会话。',
+    description: '向同组的另一个托管会话发送单向通知。消息会在对方空闲时作为一条用户输入送达；对方离线时保存在收件箱并尝试启动会话。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -72,7 +94,7 @@ const TOOLS = [
   },
   {
     name: 'ctm_ask',
-    description: '向另一个托管会话提问，语义与 ctm_tell 相同，但标记为提问。',
+    description: '向同组的另一个托管会话提问，语义与 ctm_tell 相同，但标记为提问。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -91,6 +113,7 @@ function describe(m) {
   return {
     名称: m.name,
     状态: status,
+    组: describeGroups(m),
     未读: unread,
     目录: m.cwd,
     版本: m.version || '',
@@ -117,17 +140,30 @@ function startNote(r) {
 function handleCall(id, name, args) {
   try {
     if (name === 'ctm_list') {
-      const list = listSessions().map(describe);
-      return toolResult(id, JSON.stringify(list, null, 2));
+      const me = meMeta();
+      const all = args.all === true;
+      const list = listSessions()
+        .filter((m) => all || visibleTo(me, m))
+        .map(describe);
+      const content = [{ type: 'text', text: JSON.stringify(list, null, 2) }];
+      if (!all && list.length === 0 && me.name) {
+        content.push({
+          type: 'text',
+          text: `当前会话 ${me.name} 没有可见的托管会话（组：${describeGroups(me)}）。同组会话需要用 ctm new <名字> --group <组> 启动。`,
+        });
+      }
+      return ok(id, { content });
     }
 
     if (name === 'ctm_status') {
-      const meta = readMeta(args.name);
-      if (!meta) return toolResult(id, `会话不存在：${args.name}`, true);
-      return toolResult(id, JSON.stringify(describe(meta), null, 2));
+      const r = reachable(args.name);
+      if (!r.ok) return toolResult(id, `会话不存在或不在当前可见组内：${args.name}`, true);
+      return toolResult(id, JSON.stringify(describe(r.meta), null, 2));
     }
 
     if (name === 'ctm_tell' || name === 'ctm_ask') {
+      const target = reachable(args.to);
+      if (!target.ok) return toolResult(id, `会话不存在或不在当前可见组内：${args.to}`, true);
       const msg = enqueue({
         to: args.to,
         from: SENDER,
@@ -148,16 +184,19 @@ function handleCall(id, name, args) {
     }
 
     if (name === 'ctm_start') {
-      const meta = readMeta(args.name);
-      if (!meta) return toolResult(id, `会话不存在：${args.name}`, true);
-      const r = launchSession(args.name);
-      if (r.started) {
-        return toolResult(id, JSON.stringify({ ok: true, name: args.name, mode: r.mode, note: '正在启动' }, null, 2));
+      const r = reachable(args.name);
+      if (!r.ok) return toolResult(id, `会话不存在或不在当前可见组内：${args.name}`, true);
+      const started = launchSession(args.name);
+      if (started.started) {
+        return toolResult(
+          id,
+          JSON.stringify({ ok: true, name: args.name, mode: started.mode, note: '正在启动' }, null, 2),
+        );
       }
-      if (r.reason === 'already-running') {
+      if (started.reason === 'already-running') {
         return toolResult(id, JSON.stringify({ ok: true, name: args.name, note: '会话已在运行' }, null, 2));
       }
-      return toolResult(id, `启动失败：${r.reason}`, true);
+      return toolResult(id, `启动失败：${started.reason}`, true);
     }
 
     return toolResult(id, `未知工具：${name}`, true);

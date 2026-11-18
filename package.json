@@ -19,10 +19,11 @@
   "scripts": {
     "start": "node src/main.mjs",
     "doctor": "node src/main.mjs doctor",
-    "test": "node test/unit-tui.mjs && node test/unit-inbox.mjs && node test/unit-launch.mjs && node test/unit-mcp.mjs",
+    "test": "node test/unit-tui.mjs && node test/unit-inbox.mjs && node test/unit-launch.mjs && node test/unit-groups.mjs && node test/unit-resolve.mjs && node test/unit-mcp.mjs",
     "test:smoke": "node test/m1-smoke.mjs",
     "test:m2": "node test/m2-delivery.mjs",
-    "test:m3": "node test/m3-lazy-launch.mjs"
+    "test:m3": "node test/m3-lazy-launch.mjs",
+    "test:m4": "node test/m4-wrap.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0"

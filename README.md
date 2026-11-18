@@ -2,7 +2,7 @@
 
 用 ConPTY 托管 Claude Code 交互式会话，让同一台机器上的多个会话可以互相发消息、感知状态、按组讨论，而不修改 Claude Code 本身。
 
-> 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
+> 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）、分组隔离与 claude 命令包装均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
 >
 > **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，三个场景可逐步播放）。
 
@@ -31,10 +31,11 @@ claude A（已安装插件）── /ctm:ask ──────┘        ← �
 ```bash
 npm install
 node src/main.mjs doctor          # 环境自检
-node src/main.mjs new web --cwd D:/projects/web
+node src/main.mjs new web --cwd D:/projects/web --group frontend
 node src/main.mjs list
 node src/main.mjs start web       # 窗口关掉后重新拉起
 node src/main.mjs kill web
+node src/main.mjs install-wrap    # 让 claude 命令自动变成托管会话
 ```
 
 `ctm new` 会接管当前终端：输入输出透传给托管的 `claude`，Ctrl+C 结束。
@@ -66,6 +67,66 @@ A 的会话里：/ctm:ask web 认证模块的入口在哪？
 4. 新窗口里能直接看到这条消息和 `claude` 的回答
 
 本机实测：从发起到收到回答约 25 秒（claude 2.1.319）。不发消息、只想开窗口时用 `/ctm:start web` 或 `ctm start web`。
+
+---
+
+## 分组：a,b,c 互相可见，d,e 互相可见
+
+会话在启动时归组，组内互通，组间**双向隔离**——列表里看不见，发消息也会被拒绝。
+
+```bash
+ctm new a --group frontend
+ctm new b --group frontend
+ctm new c --group frontend
+
+ctm new d --group backend
+ctm new e --group backend
+```
+
+- `/ctm:list` 只显示同组会话（`ctm_list` 带 `all: true` 可临时查看全部，用于排查）
+- `/ctm:ask`、`/ctm:tell`、`/ctm:start` 对跨组目标统一返回「不存在或不在当前可见组内」
+- 一个会话可以属于多个组，交集即桥接：`ctm new b --group frontend --group shared`
+- **没有组的会话是独立单组**，只看得见自己
+- 组的来源优先级：启动参数 `--group` > 环境变量 `CTM_GROUP` > 项目里的 `.ctm.json`
+
+项目内固定分组，不必每次带参数：
+
+```json
+// D:/projects/web/.ctm.json
+{ "group": "frontend" }
+```
+
+> 分组约束的是**会话之间**的自动传播。没有会话身份的操作者（CLI、未包装的普通 claude）视为用户本人，不受限制。
+
+---
+
+## 让 `claude` 命令直接变成托管会话
+
+不想到处记 `ctm new`，可以生成一个包装脚本：
+
+```bash
+node src/main.mjs install-wrap
+```
+
+它会在 `~/.ctm/bin/claude.cmd` 生成包装，把这个目录放到 PATH 最前面即可：
+
+```bat
+set PATH=%USERPROFILE%\.ctm\bin;%PATH%
+```
+
+之后：
+
+```text
+claude                      → 自动 ctm new，会话名取当前目录名
+claude --resume             → 交互式，仍然托管
+claude --version / -p / mcp → 原样透传给真正的 claude
+```
+
+- 同名会话还在运行时会自动加后缀（`web-2`、`web-3`）
+- 默认组取自 `--group`、`CTM_GROUP` 或当前目录的 `.ctm.json`
+- 解析器会跳过这个包装脚本，不会递归调用自己
+
+这样「敲 `claude` 就进会话」和「这个会话能收信」变成同一件事。
 
 ---
 
@@ -176,6 +237,9 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 - 按需启动默认新开终端窗口，优先用 `wt.exe`，缺失时回退 `cmd.exe /c start`。无桌面会话（纯后台）环境下只能用 `CTM_LAUNCH_MODE=background`，此时没有可视窗口。
 - 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。
 - 15 秒的 `launch.lock` 用来防止多个发送方同时拉起同一个会话；在此期间重复请求会返回"启动进行中"。
+- 分组是协作边界，不是安全边界：同一用户仍可直接读改 `~/.ctm/` 下的文件。它防止的是会话之间的意外串扰。
+- `ctm install-wrap` 只生成脚本，不修改 PATH；需要手动把 `~/.ctm/bin` 放到 PATH 前面。
+- 包装后的 `claude` 在同一目录重复打开时，会话名会自动加 `-2`、`-3`，旧窗口关闭后名字会被复用。
 
 ---
 
@@ -202,15 +266,19 @@ src/
   registry.mjs          会话注册表
   inbox.mjs             收件箱（跨进程投递队列）
   launch.mjs            按需启动离线的托管会话
+  groups.mjs            分组可见性与 claude 包装判定
   mcp-server.mjs        插件 MCP server
 test/
   unit-tui.mjs          TUI 判定逻辑单元测试
   unit-inbox.mjs        收件箱单元测试
   unit-launch.mjs       按需启动单元测试
+  unit-groups.mjs       分组可见性与包装判定单元测试
+  unit-resolve.mjs      claude 可执行文件解析单元测试
   unit-mcp.mjs          MCP server 工具语义测试（假入口，不启动 claude）
   m1-smoke.mjs          M1 单会话冒烟测试
   m2-delivery.mjs       M2 主动投递端到端测试
   m3-lazy-launch.mjs    M3 离线会话被自动拉起并补投
+  m4-wrap.mjs           M4 claude 包装启动托管会话
 ```
 
 设计阶段的验证脚本（`v*.mjs`、`diag-*.mjs`）与原始记录在 `../cc-wrapped/verify/`，不属于本工程。

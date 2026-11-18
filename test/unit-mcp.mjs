@@ -1,5 +1,5 @@
 // MCP server 单元测试：走真实 stdio JSON-RPC，但不启动 claude。
-// 重点是插件暴露的工具与离线拉起的返回语义。
+// 覆盖工具语义、分组可见性与离线拉起的返回。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,6 +21,8 @@ fs.writeFileSync(
   `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)));\n`,
 );
 
+// 发送方 a 属于 frontend
+writeMeta('sender-a', { name: 'sender-a', pid: null, cwd: WORK, groups: ['frontend'], status: 'offline' });
 writeMeta('lazy', {
   name: 'lazy',
   pid: null,
@@ -28,14 +30,12 @@ writeMeta('lazy', {
   node: process.execPath,
   entry: FAKE_ENTRY,
   settleMs: 2000,
+  groups: ['frontend'],
   status: 'offline',
 });
-writeMeta('busy', {
-  name: 'busy',
-  pid: process.pid,
-  cwd: WORK,
-  status: 'idle',
-});
+writeMeta('busy', { name: 'busy', pid: process.pid, cwd: WORK, groups: ['frontend'], status: 'idle' });
+writeMeta('outsider', { name: 'outsider', pid: process.pid, cwd: WORK, groups: ['backend'], status: 'idle' });
+writeMeta('orphan', { name: 'orphan', pid: process.pid, cwd: WORK, groups: [], status: 'idle' });
 enqueue({ to: 'lazy', from: 'x', text: '第一条' });
 enqueue({ to: 'lazy', from: 'x', text: '第二条' });
 
@@ -78,14 +78,15 @@ function rpc(method, params) {
 async function call(name, args) {
   const msg = await rpc('tools/call', { name, arguments: args });
   const r = msg.result;
-  const text = r?.content?.[0]?.text ?? '';
+  const chunks = (r?.content || []).map((c) => c.text).filter((t) => t != null);
+  const text = chunks[0] ?? '';
   let parsed = null;
   try {
     parsed = JSON.parse(text);
   } catch {
     // 非 JSON 结果
   }
-  return { isError: !!r?.isError, text, parsed };
+  return { isError: !!r?.isError, text, parsed, extra: chunks.slice(1) };
 }
 
 let pass = 0;
@@ -101,7 +102,6 @@ async function check(name, fn) {
   }
 }
 
-let tools = [];
 await check('initialize 返回 ctm 服务信息', async () => {
   const r = await rpc('initialize', { protocolVersion: '2024-11-05' });
   assert.equal(r.result.serverInfo.name, 'ctm');
@@ -109,21 +109,53 @@ await check('initialize 返回 ctm 服务信息', async () => {
 
 await check('tools/list 暴露 5 个工具', async () => {
   const r = await rpc('tools/list', {});
-  tools = r.result.tools.map((t) => t.name).sort();
+  const tools = r.result.tools.map((t) => t.name).sort();
   assert.deepEqual(tools, ['ctm_ask', 'ctm_list', 'ctm_start', 'ctm_status', 'ctm_tell']);
 });
 
-await check('ctm_list 显示离线会话与未读数', async () => {
+await check('ctm_list 只显示同组会话', async () => {
   const { parsed } = await call('ctm_list', {});
+  const names = parsed.map((s) => s.名称).sort();
+  assert.deepEqual(names, ['busy', 'lazy', 'sender-a']);
   const lazy = parsed.find((s) => s.名称 === 'lazy');
-  const busy = parsed.find((s) => s.名称 === 'busy');
   assert.equal(lazy.状态, 'offline');
+  assert.equal(lazy.组, 'frontend');
   assert.equal(lazy.未读, 2);
-  assert.equal(busy.状态, 'idle');
-  assert.equal(busy.未读, 0);
 });
 
-await check('ctm_tell 对离线目标会入队并尝试拉起', async () => {
+await check('ctm_list all=true 显示全部会话', async () => {
+  const { parsed } = await call('ctm_list', { all: true });
+  const names = parsed.map((s) => s.名称).sort();
+  assert.deepEqual(names, ['busy', 'lazy', 'orphan', 'outsider', 'sender-a']);
+  const orphan = parsed.find((s) => s.名称 === 'orphan');
+  assert.equal(orphan.组, '(独立)');
+});
+
+await check('ctm_status 拒绝跨组会话', async () => {
+  const { isError, text } = await call('ctm_status', { name: 'outsider' });
+  assert.equal(isError, true);
+  assert.match(text, /不存在或不在当前可见组内/);
+});
+
+await check('ctm_tell 拒绝跨组投递', async () => {
+  const before = readInbox('outsider').length;
+  const { isError, text } = await call('ctm_tell', { to: 'outsider', text: '越界' });
+  assert.equal(isError, true);
+  assert.match(text, /不存在或不在当前可见组内/);
+  assert.equal(readInbox('outsider').length, before);
+});
+
+await check('ctm_tell 拒绝发给无组会话', async () => {
+  const { isError } = await call('ctm_tell', { to: 'orphan', text: '越界' });
+  assert.equal(isError, true);
+});
+
+await check('ctm_start 拒绝跨组会话', async () => {
+  const { isError } = await call('ctm_start', { name: 'outsider' });
+  assert.equal(isError, true);
+});
+
+await check('ctm_tell 对同组离线目标会入队并尝试拉起', async () => {
   const { isError, parsed } = await call('ctm_tell', { to: 'lazy', text: '唤醒一下' });
   assert.equal(isError, false);
   assert.equal(parsed.ok, true);
@@ -155,7 +187,7 @@ await check('锁生效期间重复启动返回启动中', async () => {
 await check('ctm_start 未知会话报错', async () => {
   const { isError, text } = await call('ctm_start', { name: 'nobody' });
   assert.equal(isError, true);
-  assert.match(text, /会话不存在/);
+  assert.match(text, /不存在或不在当前可见组内/);
 });
 
 await check('ctm_ask 标记消息类型为 ask', async () => {

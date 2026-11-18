@@ -8,6 +8,7 @@ import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { writeSettings } from './hooks.mjs';
 import { writeMeta, readMeta, removeMeta, sessionDir } from './registry.mjs';
 import { pendingMessages, markDelivered, readDelivered, formatMessage } from './inbox.mjs';
+import { normalizeGroups } from './groups.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,7 +38,8 @@ export function detectGitDirs() {
 export class Session {
   /**
    * @param {{ name: string, cwd: string, ctmDir: string, cols?: number, rows?: number,
-   *           settleMs?: number, onStatus?: (s: string) => void }} opts
+   *           settleMs?: number, groups?: string[], claudeArgs?: string[],
+   *           onStatus?: (s: string) => void }} opts
    */
   constructor(opts) {
     this.name = opts.name;
@@ -46,6 +48,8 @@ export class Session {
     this.cols = opts.cols || 120;
     this.rows = opts.rows || 40;
     this.settleMs = opts.settleMs ?? 3000;
+    this.groups = normalizeGroups(opts.groups);
+    this.claudeArgs = opts.claudeArgs || [];
 
     this.screen = new ScreenBuffer();
     this.bootstrap = new Bootstrap({ settleMs: this.settleMs });
@@ -70,6 +74,7 @@ export class Session {
 
     const resolved = resolveClaudeBin();
     this.bin = resolved.bin;
+    this.claudePrefix = resolved.prefix || [];
     this.binVia = resolved.via;
 
     const env = { ...process.env };
@@ -78,13 +83,17 @@ export class Session {
     if (gitDirs.length) env.PATH = gitDirs.join(';') + ';' + env.PATH;
     env.CTM_SESSION_NAME = this.name;
 
-    this.proc = ptySpawn(this.bin, ['--settings', this.settingsFile], {
-      name: 'xterm-256color',
-      cols: this.cols,
-      rows: this.rows,
-      cwd: this.cwd,
-      env,
-    });
+    this.proc = ptySpawn(
+      this.bin,
+      [...this.claudePrefix, '--settings', this.settingsFile, ...this.claudeArgs],
+      {
+        name: 'xterm-256color',
+        cols: this.cols,
+        rows: this.rows,
+        cwd: this.cwd,
+        env,
+      },
+    );
 
     this.proc.onData((d) => {
       process.stdout.write(d);
@@ -114,8 +123,9 @@ export class Session {
       cwd: this.cwd,
       bin: this.bin,
       binVia: this.binVia,
-      version: claudeVersion(this.bin) || '',
+      version: claudeVersion(this.bin, this.claudePrefix) || '',
       status: 'starting',
+      groups: this.groups,
       settleMs: this.settleMs,
       // 供其他进程按需重新拉起本会话
       node: process.execPath,
