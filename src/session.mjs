@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { spawn as ptySpawn } from 'node-pty';
-import { ScreenBuffer, Bootstrap, isBusyText, normalize } from './tui.mjs';
+import { ScreenBuffer, Bootstrap, isBusyText, isPermissionPrompt, normalize } from './tui.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { writeSettings } from './hooks.mjs';
 import { writeMeta, readMeta, removeMeta, sessionDir } from './registry.mjs';
@@ -56,7 +56,10 @@ export class Session {
     this.status = 'starting';
     this.exited = false;
     this.lastUserKeyAt = 0;
+    this.permissionAckAt = 0;
     this.eventOffset = 0;
+    this.lastHook = '';
+    this.lastHookAt = 0;
     this.onStatus = opts.onStatus || (() => {});
     this.onExit =
       opts.onExit ||
@@ -158,8 +161,15 @@ export class Session {
       this.lastUserKeyAt = Date.now();
       // 用户在需要确认的提示上按了键：交回启动状态机重新判定
       if (this.status === 'needs-input') {
-        this.bootstrap.startedAt = Date.now();
-        this.setStatus('starting');
+        if (this.bootstrap.phase !== 'done') {
+          this.bootstrap.startedAt = Date.now();
+          this.setStatus('starting');
+        } else {
+          // 运行期权限提示：用户已作出选择，claude 会继续执行。
+          // 先恢复 busy，避免下一 tick 把同一提示再次标记为 needs-input。
+          this.permissionAckAt = Date.now();
+          this.setStatus('busy');
+        }
       }
       try {
         this.proc.write(d.toString('utf8'));
@@ -204,6 +214,17 @@ export class Session {
     } else if (action === 'timeout') {
       this.setStatus('unknown');
     }
+
+    // 启动流程结束后才检测运行期权限提示；启动阶段的 MCP 确认由 Bootstrap 处理。
+    // 会话卡在权限确认上不会发 Stop，必须主动识别，否则会一直显示忙。
+    if (
+      this.bootstrap.phase === 'done' &&
+      this.status !== 'needs-input' &&
+      Date.now() - this.permissionAckAt > 3000 &&
+      isPermissionPrompt(t)
+    ) {
+      this.setStatus('needs-input');
+    }
   }
 
   pollEvents() {
@@ -233,6 +254,8 @@ export class Session {
       else if (ev.hook === 'UserPromptSubmit' || ev.hook === 'PreToolUse' || ev.hook === 'PostToolUse')
         this.setStatus('busy');
       else if (ev.hook === 'SessionEnd') this.setStatus('offline');
+      this.lastHook = ev.hook;
+      this.lastHookAt = Date.now();
     }
   }
 
@@ -269,8 +292,19 @@ export class Session {
     if (Date.now() - this.lastUserKeyAt < 2000) return { ok: false, reason: 'user-typing' };
 
     const before = this.screen.raw.length;
+    const hookMark = this.lastHookAt;
     // 先置 busy，避免 Stop 到达前被重复投递
     this.setStatus('busy');
+
+    // 提交确认有三条互相独立的证据：
+    //   1. 屏幕出现 "esc to interrupt"（思考/长任务阶段不一定出现）
+    //   2. 收到 UserPromptSubmit/PreToolUse/PostToolUse（说明输入已被接受）
+    //   3. 收到 Stop（说明这一轮已经跑完）
+    // 只认屏幕会让刚提交但还没渲染状态的会话被误判为失败。
+    const isConfirmed = () =>
+      isBusyText(normalize(this.screen.raw.slice(before))) ||
+      (this.lastHookAt > hookMark &&
+        ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'].includes(this.lastHook));
 
     try {
       this.proc.write(text);
@@ -280,16 +314,26 @@ export class Session {
       return { ok: false, reason: 'write-failed', error: e.message };
     }
 
-    // 提交确认：esc to interrupt 或 clear 后出现新的模型输出。
-    // 只看写入之后新产生的文本，避免历史内容误判。
-    const deadline = Date.now() + timeoutMs;
+    let deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const fresh = normalize(this.screen.raw.slice(before));
-      if (isBusyText(fresh)) return { ok: true };
+      if (isConfirmed()) return { ok: true };
       await sleep(150);
     }
 
-    // 没等到信号：可能模型很快答完，或消息停在输入框。
+    // 没等到信号：新会话首条消息可能被 TUI 吞掉回车，输入框里还留着文本。
+    // 补发一次回车（已提交时是空回车，无害），再给约 4 秒。
+    try {
+      this.proc.write('\r');
+    } catch {
+      // PTY 已关闭
+    }
+    deadline = Date.now() + 4000;
+    while (Date.now() < deadline) {
+      if (isConfirmed()) return { ok: true };
+      await sleep(150);
+    }
+
+    // 仍然没有信号：可能消息停在输入框，也可能模型已答完但钩子没来。
     // 不能把会话卡在 busy —— 没有 Stop 会来，后续投递会永久阻塞。
     this.setStatus('idle');
     return { ok: false, reason: 'unconfirmed' };

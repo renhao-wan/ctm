@@ -26,6 +26,17 @@ const FULLSCREEN_MARKERS = ['fullscreenrenderer'];
 // 这等于授权执行第三方代码，不能由 ctm 代替用户按回车。
 const MCP_MARKERS = ['mcpserverfoundinthisproject'];
 
+// 运行期的工具权限确认。文案取自 2.1.319 二进制：
+//   "Do you want to proceed?"
+//   "No, and tell Claude what to do differently"
+//   "Do you want to allow this connection?"
+// 提示出现时会话不会发 Stop，必须由宿主识别并暂停投递。
+const PERMISSION_MARKERS = [
+  'doyouwanttoproceed',
+  'doyouwanttoallowthisconnection',
+  'no,andtellclaudewhattododifferently',
+];
+
 export const TRUST_SELECTION = { NO: 'no', YES: 'yes', UNKNOWN: 'unknown' };
 
 /**
@@ -77,6 +88,24 @@ export function isMcpPrompt(t) {
   // 只看屏幕末尾：raw 是累积缓冲，提示关闭后历史文本仍会留在前面
   const tail = t.slice(-2000);
   return MCP_MARKERS.some((m) => tail.includes(m));
+}
+
+/**
+ * 运行期权限提示。同样只看屏幕末尾：用户确认后提示消失，
+ * 但历史文本仍留在累积缓冲里，不能据此永久判定为 needs-input。
+ *
+ * 实测 2.1.319 的写文件提示是：
+ *   Do you want to create permission-check.txt?
+ *   ❯ 1. Yes
+ *     2. Yes, and switch to accept edits…
+ *     3. No
+ *   Esc to cancel · Tab to amend
+ * 因此再加一条通用组合：Do you want to …? + 编号选项 + Esc to cancel。
+ */
+export function isPermissionPrompt(t) {
+  const tail = t.slice(-3000);
+  if (PERMISSION_MARKERS.some((m) => tail.includes(m))) return true;
+  return tail.includes('doyouwantto') && tail.includes('1.yes') && tail.includes('esctocancel');
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   normalize,
   READY_MARKERS,
   isMcpPrompt,
+  isPermissionPrompt,
   trustSelection,
   TRUST_SELECTION,
 } from '../src/tui.mjs';
@@ -133,6 +134,43 @@ check('MCP 历史文本不会让会话永远停在 needs-input', () => {
   // 提示关闭后，旧文本仍留在累积缓冲前部；只检查屏幕末尾
   const longTail = 'x'.repeat(3000);
   assert.equal(isMcpPrompt(norm(`${SCREEN_MCP}\n${longTail}`)), false);
+});
+
+// 运行期工具权限确认：2.1.319 实测的写文件提示
+const SCREEN_PERMISSION = `
+Do you want to create permission-check.txt?
+❯ 1. Yes
+  2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)
+  3. No
+Esc to cancel · Tab to amend
+`;
+
+const SCREEN_PERMISSION_BASH = `
+Bash command
+  npm test
+
+Do you want to proceed?
+❯ 1. Yes
+  2. Yes, and don't ask again for npm commands
+  3. No, and tell Claude what to do differently (esc)
+`;
+
+check('运行期权限提示被识别', () => {
+  assert.equal(isPermissionPrompt(norm(SCREEN_PERMISSION)), true);
+  assert.equal(isPermissionPrompt(norm(SCREEN_PERMISSION_BASH)), true);
+  assert.equal(isPermissionPrompt(norm('Do you want to allow this connection?')), true);
+});
+
+check('普通回答不会被误判为权限提示', () => {
+  assert.equal(isPermissionPrompt(norm('● 已完成修改，运行 npm test 全部通过。')), false);
+  assert.equal(isPermissionPrompt(norm('❯ 在这里正常使用 claude 即可')), false);
+  // 只有 "Do you want to..." 但没有选项菜单，不当作权限提示
+  assert.equal(isPermissionPrompt(norm('回答里引用了 Do you want to proceed? 这句话')), true);
+});
+
+check('确认后的历史文本不会永久命中', () => {
+  const later = 'x'.repeat(3500);
+  assert.equal(isPermissionPrompt(norm(`${SCREEN_PERMISSION}\n${later}`)), false);
 });
 
 check('就绪后需要 settle', () => {
