@@ -2,9 +2,9 @@
 
 用 ConPTY 托管 Claude Code 交互式会话，让同一台机器上的多个会话可以互相发消息、感知状态、按组讨论，而不修改 Claude Code 本身。
 
-> 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）、分组隔离与 claude 命令包装均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
+> 当前状态：M1（宿主 + 单会话托管 + 状态机）、M2（主动投递）、M3（离线会话按需拉起并补投）、分组隔离、claude 命令包装、M4（组内讨论频道）、M5（npm 打包与自检）均已通过。设计与验证文档在仓库外层的 `../cc-wrapped/`：`ctm-design.md`、`ctm-verified-findings.md`、`ctm-verification-plan.md`。
 >
-> **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，五个场景可逐步播放）。
+> **第一次用？先看动画版指南：[`docs/guide.html`](docs/guide.html)**（浏览器直接打开，六个场景可逐步播放）。
 
 ## 形态：插件 + 宿主
 
@@ -33,9 +33,12 @@ npm install
 node src/main.mjs doctor          # 环境自检
 node src/main.mjs new web --cwd D:/projects/web --group frontend
 node src/main.mjs list
-node src/main.mjs start web       # 窗口关掉后重新拉起
+node src/main.mjs resume              # 在新的托管会话里恢复历史对话（claude --resume）
+node src/main.mjs start web           # 窗口关掉后重新拉起
 node src/main.mjs kill web
-node src/main.mjs install-wrap    # 让 claude 命令自动变成托管会话
+node src/main.mjs install-wrap        # 让 claude 命令自动变成托管会话
+node src/main.mjs room create api 认证接口怎么改 --group frontend
+node src/main.mjs room start api      # 把议题投递给同组成员
 ```
 
 `ctm new` 会接管当前终端：输入输出透传给托管的 `claude`，Ctrl+C 结束。
@@ -46,7 +49,14 @@ node src/main.mjs install-wrap    # 让 claude 命令自动变成托管会话
 /ctm:list                          # 查看托管会话、状态与未读数
 /ctm:ask web 认证服务的端口是多少？   # 提问；web 没开时自动拉起
 /ctm:tell web 接口字段已经改了        # 单向通知
+/ctm:reply 7f3a1c2d 收到，马上看       # 回复收件箱里的某条消息
 /ctm:start web                     # 只启动，不发消息
+
+/ctm:room create api 认证接口怎么改   # 建一个讨论频道
+/ctm:room start api 第一轮：字段命名  # 把议题投递给同组成员
+/ctm:room say api 先加版本号          # 发言
+/ctm:room show api                 # 查看发言
+/ctm:room summary api              # 生成 summary.md
 ```
 
 本地开发时可用 `claude --plugin-dir D:/projects/claudecode-plugings/ctm` 临时加载，正式安装走 `/plugin`。
@@ -127,6 +137,52 @@ claude --version / -p / mcp → 原样透传给真正的 claude
 - 解析器会跳过这个包装脚本，不会递归调用自己
 
 这样「敲 `claude` 就进会话」和「这个会话能收信」变成同一件事。
+
+---
+
+## 讨论频道：组内多轮
+
+频道属于一个组，组外会话看不见，也发不进来。
+
+```bash
+ctm room create api 认证接口怎么改 --group frontend
+ctm room say api 先加版本号
+ctm room start api 第一轮：字段命名
+ctm room show api
+ctm room summary api
+```
+
+存储结构：
+
+```text
+~/.ctm/rooms/api/
+├── meta.json       # 议题、组、轮次、创建者
+├── messages.jsonl  # 按时间追加的发言，带轮次
+└── summary.md      # 按轮次汇总，summary 命令生成
+```
+
+- `start` 把本轮议题写进频道，并投递到同组每个成员的收件箱；离线成员启动后自动补投
+- **不自动多轮**：每轮都要显式 `start`，避免会话互相触发、token 失控
+- 发言用 `say`，查看用 `show`，收尾用 `summary`
+- 频道名会清洗成安全文件名，不能借 `../` 跳出 `~/.ctm/rooms/`
+- 在 Claude Code 会话里用 `/ctm:room <动作> ...`，语义相同
+
+---
+
+## 打包与安装
+
+```bash
+npm pack                    # 生成 ctm-0.3.0.tgz；prepack 会先跑全部单元测试
+npm install -g ./ctm-0.3.0.tgz
+ctm doctor
+```
+
+包内含插件清单（`.claude-plugin/`、`.mcp.json`、`commands/`）与宿主代码。作为 Claude Code 插件加载：
+
+```bash
+claude --plugin-dir "$(npm root -g)/ctm"      # Git Bash
+claude --plugin-dir "$(npm root -g)\ctm"      # PowerShell
+```
 
 ---
 
@@ -229,10 +285,13 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 
 - 已启动的普通 `claude` 会话无法被接管（`AttachConsole` 返回拒绝访问）；只能新开托管会话。
 - 用户输入残留内容超过 2 秒未变化时，宿主无法观测输入框状态，仍可能污染。
-- 工具权限确认会阻塞轮次：默认权限模式下 `Write` 等操作需要用户确认，`Stop` 不会到达。M1 由用户手动确认；M2 的自动投递需要先识别并暴露该状态。
+- 工具权限确认会阻塞轮次：`Write` 等操作需要用户确认时，会话不会发 `Stop`。宿主会把这种屏幕标记为 `needs-input`、暂停投递，并在 `ctm list` / `/ctm:list` 中显示；**但不会代替用户确认**，需要你到该窗口按键。
+- `needs-input` 的识别依赖屏幕尾部文案：已知的 `Do you want to proceed?`、`Do you want to allow this connection?`，以及通用组合 `Do you want to …?` + `1. Yes` + `Esc to cancel`（实测 2.1.319 写文件提示是 `Do you want to create <file>?`）。Claude Code 改版后若文案变化，需要同步 `src/tui.mjs` 的标记。
+- 讨论频道不自动多轮：`start` 只投递议题，不等待成员发言，也不会自动发起下一轮。轮次由人显式推进。
+- 讨论频道的组隔离与消息一致，但它不是安全边界：同一用户仍可直接读写 `~/.ctm/rooms/`。
 - 信任提示的自动选择依赖当前布局（`❯` 紧邻选项文本）。布局变化时不猜按键，会话会停在启动阶段直到超时，需要用户手动处理。
 - 项目目录自带 `.mcp.json` 时，claude 启动会要求确认是否加载其中的 MCP server。MCP server 可以执行任意代码，宿主**不代替用户授权**，会话停在 `needs-input`，需要用户按键确认一次。
-- 首条消息：2.1.319 单会话冒烟 6/6 成功，但 5 会话并发启动时实测 4/5 失败。多会话场景（M2）需要重新验证，防御措施（settle + 提交确认）保留。
+- 首条消息：提交确认现在同时看屏幕与 hook 事件，超时后会补发一次回车。2.1.319 单会话冒烟 6/6 成功；5 会话并发启动时实测仍有 4/5 首条失败，并发场景需要重新验证。
 - 按需启动依赖 `meta.json`：`ctm kill` 会删除它，被 kill 掉的会话无法再由其他会话拉起。要保留"随时可唤醒"能力请直接关闭窗口（Ctrl+C），不要用 `ctm kill`。
 - 按需启动默认新开终端窗口，优先用 `wt.exe`，缺失时回退 `cmd.exe /c start`。无桌面会话（纯后台）环境下只能用 `CTM_LAUNCH_MODE=background`，此时没有可视窗口。
 - 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。
@@ -255,7 +314,9 @@ commands/
   list.md               /ctm:list
   ask.md                /ctm:ask
   tell.md               /ctm:tell
+  reply.md              /ctm:reply
   start.md              /ctm:start
+  room.md               /ctm:room
 src/
   main.mjs              CLI
   session.mjs           PTY 宿主、状态机、收件箱投递
@@ -267,6 +328,7 @@ src/
   inbox.mjs             收件箱（跨进程投递队列）
   launch.mjs            按需启动离线的托管会话
   groups.mjs            分组可见性与 claude 包装判定
+  rooms.mjs             讨论频道：存储、可见性、轮次、摘要
   mcp-server.mjs        插件 MCP server
 test/
   unit-tui.mjs          TUI 判定逻辑单元测试
@@ -274,6 +336,7 @@ test/
   unit-launch.mjs       按需启动单元测试
   unit-groups.mjs       分组可见性与包装判定单元测试
   unit-resolve.mjs      claude 可执行文件解析单元测试
+  unit-rooms.mjs        讨论频道单元测试
   unit-mcp.mjs          MCP server 工具语义测试（假入口，不启动 claude）
   m1-smoke.mjs          M1 单会话冒烟测试
   m2-delivery.mjs       M2 主动投递端到端测试

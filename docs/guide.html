@@ -303,7 +303,7 @@
 
   <header>
     <h1>ctm 使用指南 <span>·</span> 跟着动画走一遍</h1>
-    <p>不要读文档，点「播放」，看五个场景就行。每个场景 4～6 步。</p>
+    <p>不要读文档，点「播放」，看六个场景就行。每个场景 4～6 步。</p>
   </header>
 
   <div class="prereq">
@@ -319,6 +319,7 @@
     <button data-scene="2">③ B 没开：A 把 B 拉起来</button>
     <button data-scene="3">④ 分组：谁看得见谁</button>
     <button data-scene="4">⑤ 敲 claude 就自动托管</button>
+    <button data-scene="5">⑥ 组内讨论频道</button>
   </nav>
 
   <div class="stage">
@@ -403,9 +404,24 @@
         <td><code>/ctm:ask web 端口是多少？</code></td>
       </tr>
       <tr>
+        <td>回复某条消息</td>
+        <td>—</td>
+        <td><code>/ctm:reply &lt;短id&gt; 收到</code><br><small style="color:#8b98a8">id 在消息前缀的 <code>#</code> 后面</small></td>
+      </tr>
+      <tr>
         <td>只把离线的会话打开</td>
         <td><code>ctm start web</code></td>
         <td><code>/ctm:start web</code></td>
+      </tr>
+      <tr>
+        <td>在新的托管会话里恢复历史对话</td>
+        <td><code>ctm resume &lt;sessionId&gt;</code></td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>组内讨论频道</td>
+        <td><code>ctm room create api 议题</code><br><code>ctm room start api</code></td>
+        <td><code>/ctm:room create api 议题</code><br><code>/ctm:room start api</code></td>
       </tr>
       <tr>
         <td>结束会话<br><small style="color:#8b98a8">（保留注册信息，之后还能被拉起）</small></td>
@@ -420,8 +436,12 @@
     </tbody>
   </table>
 
-  <h2>五个最常见的误会</h2>
+  <h2>七个最常见的误会</h2>
   <div class="myths">
+    <div class="myth">
+      <b>“B 一直显示忙，是不是卡死了？”</b>
+      <span>先看 <code>ctm list</code>：状态若是 <code>needs-input</code>，说明 claude 正在等你在那个窗口确认某个工具操作（比如写文件）。ctm 不会代你批准；确认后它才会继续，队列也会恢复投递。</span>
+    </div>
     <div class="myth">
       <b>“我敲 claude 就能进群聊了吧？”</b>
       <span>发信可以。收信不行：普通 claude 的输入框不在 ctm 手里，没有通道能往里写。想收信，用 <code>ctm new</code> 启动。</span>
@@ -441,6 +461,10 @@
     <div class="myth">
       <b>“install-wrap 之后，所有 claude 调用都被托管了吧？”</b>
       <span>只有交互式启动才托管。<code>--version</code>、<code>-p</code>、<code>mcp</code> 等非交互用法原样透传，脚本和 CI 不受影响。</span>
+    </div>
+    <div class="myth">
+      <b>“讨论频道会自动多轮吧？”</b>
+      <span>不会。每轮都要显式 <code>start</code>。自动多轮会让会话互相触发，token 成本不可控；节奏留在人手里。</span>
     </div>
   </div>
 
@@ -732,6 +756,63 @@
           a: 'online', b: 'online',
           flow: '跳过包装，防止递归',
           tip: '<b>这是包装方案最容易踩的坑。</b>解析器还要识别“node.exe + cli.js”这种安装形态——不能把 node.exe 本身当成 claude。两条规则都在 <code>src/resolve-claude.mjs</code> 里。',
+        },
+      ],
+    },
+    {
+      title: '场景六 · 组内讨论频道',
+      steps: [
+        {
+          lines: [
+            { t: '# 在 a 的会话里', c: 'dim' },
+            { t: '> /ctm:room create api 认证接口怎么改', c: 'cmd' },
+            { t: '{ "name": "api", "group": "frontend", "round": 0 }', c: '' },
+          ],
+          aName: 'a · frontend', aSub: '发起讨论',
+          bName: 'b · frontend', bSub: '同组成员',
+          a: 'online', b: 'online',
+          flow: '频道绑定 frontend',
+          tip: '<b>频道属于一个组。</b>组外会话既看不到频道，也不能发言。频道存储在 <code>~/.ctm/rooms/api/</code>，成员各自在自己的窗口里操作。',
+        },
+        {
+          lines: [
+            { t: '> /ctm:room start api 第一轮：字段命名', c: 'cmd' },
+            { t: '{ "round": 1, "sent": ["b", "c"],', c: '' },
+            { t: '  "note": "议题已写入各成员收件箱" }', c: '' },
+          ],
+          packet: 'inbox',
+          inboxHot: true,
+          aName: 'a · frontend', aSub: '发起讨论',
+          bName: 'b · frontend', bSub: '同组成员',
+          a: 'online', b: 'online',
+          flow: '议题进入成员收件箱',
+          tip: '<b>start 只是把议题排队。</b>它不会等待成员回答，也不会自动开始下一轮。成员离线时消息留在收件箱，等它启动后补投。',
+        },
+        {
+          lines: [
+            { t: '# 在 b 的会话里', c: 'dim' },
+            { t: '> /ctm:room say api 先加版本号', c: 'cmd' },
+            { t: '> /ctm:room say api 保持向后兼容', c: 'cmd' },
+          ],
+          aName: 'a · frontend', aSub: '发起讨论',
+          bName: 'b · frontend', bSub: '正在发言',
+          a: 'online', b: 'online',
+          flow: '发言追加到频道',
+          tip: '<b>发言只追加，不改写历史。</b>每条发言都带来源与轮次，summary 按轮次汇总，不会把不同轮的讨论混在一起。',
+        },
+        {
+          lines: [
+            { t: '> /ctm:room summary api', c: 'cmd' },
+            { t: '~/.ctm/rooms/api/summary.md', c: 'ok' },
+            { t: '# 第 1 轮：字段命名', c: 'dim' },
+            { t: '- a（议题）：第一轮：字段命名', c: '' },
+            { t: '- b：先加版本号', c: '' },
+          ],
+          aName: 'a · frontend', aSub: '发起讨论',
+          bName: 'b · frontend', bSub: '同组成员',
+          a: 'online', b: 'online',
+          flow: '按轮次汇总',
+          tip: '<b>不自动多轮的取舍：</b>自动多轮会让会话互相触发，token 成本不可控。每一轮都由你显式 start，讨论节奏留在人手里。',
         },
       ],
     },

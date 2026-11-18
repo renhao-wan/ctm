@@ -2,7 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "ctm",
   "description": "Claude Terminal Multiplexer：在由 ctm 托管的多个 Claude Code 会话之间收发消息。",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "ctm"
   },
