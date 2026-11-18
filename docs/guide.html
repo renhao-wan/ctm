@@ -81,6 +81,49 @@
     font-weight: 700;
   }
 
+  /* ---------- 身份切换：终端 / 会话内 / AI ---------- */
+  .persp {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 0 0 10px;
+  }
+  .persp-btn {
+    font-family: inherit;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 15px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    transition: all .18s ease;
+  }
+  .persp-btn .persp-icon { font-size: 18px; line-height: 1.1; }
+  .persp-btn b { font-size: 13.5px; }
+  .persp-btn small { color: var(--dim); font-size: 11.5px; }
+  .persp-btn:hover { border-color: #3a4a5e; transform: translateY(-1px); }
+  .persp-btn.active {
+    border-color: var(--cyan);
+    background: linear-gradient(180deg, rgba(76,201,240,.16), rgba(76,201,240,.04));
+    box-shadow: 0 0 0 3px rgba(76,201,240,.08);
+  }
+  .persp-btn.active b { color: var(--cyan); }
+  .persp-note {
+    font-size: 12.5px;
+    color: var(--dim);
+    margin: 0 0 22px;
+    padding-left: 2px;
+    min-height: 20px;
+  }
+  .persp-note b { color: var(--text); }
+  @media (max-width: 860px) {
+    .persp { grid-template-columns: 1fr; }
+  }
+
   /* ---------- 舞台 ---------- */
   .stage {
     display: grid;
@@ -237,6 +280,7 @@
   .controls #play { background: var(--green); color: #04130c; border-color: var(--green); font-weight: 700; }
   .controls #play.playing { background: var(--amber); border-color: var(--amber); color: #1a1304; }
   .step-label { margin-left: auto; font-size: 12px; color: var(--dim); }
+  .hint { font-size: 11.5px; color: #6f7f93; margin: 0 0 12px; }
 
   .tip {
     border-left: 3px solid var(--cyan);
@@ -302,9 +346,28 @@
 <div class="wrap">
 
   <header>
-    <h1>ctm 使用指南 <span>·</span> 跟着动画走一遍</h1>
-    <p>不要读文档，点「播放」，看六个场景就行。每个场景 4～6 步。</p>
+    <h1>ctm 使用指南 <span>·</span> 选个身份，跟着走一遍</h1>
+    <p>先点下面你是「谁」，动画里就只显示这个身份下真实的命令。看不懂就点「播放」，一个场景十几秒。</p>
   </header>
+
+  <div class="persp" role="group" aria-label="选择你现在的身份">
+    <button class="persp-btn active" data-view="shell">
+      <span class="persp-icon">🧑‍💻</span>
+      <b>你在终端</b>
+      <small>敲 claude、ctm new</small>
+    </button>
+    <button class="persp-btn" data-view="chat">
+      <span class="persp-icon">⌨️</span>
+      <b>你在会话里</b>
+      <small>输入 /ctm:ask 这类斜杠命令</small>
+    </button>
+    <button class="persp-btn" data-view="ai">
+      <span class="persp-icon">🤖</span>
+      <b>AI 自己调用</b>
+      <small>MCP 工具 ctm_ask、ctm_room</small>
+    </button>
+  </div>
+  <div class="persp-note" id="perspNote"></div>
 
   <div class="prereq">
     <div><b>1 · 谁能当接收方</b>必须用 <code>ctm new</code> 启动的会话。<br><small>普通 <code>claude</code> 只能发信，不能收信。</small></div>
@@ -364,73 +427,86 @@
     <button id="next">下一步 →</button>
     <span class="step-label" id="stepLabel"></span>
   </div>
+  <div class="hint">随时点上面的身份换视角，场景和步骤不会丢；键盘 ← → 也能翻页。</div>
 
   <div class="tip" id="tip">点「播放」开始。</div>
 
-  <h2>命令速查 <small>左边是终端里敲的，右边是 Claude Code 里输入的</small></h2>
+  <h2>命令速查 <small>同一件事，看你站在哪一边</small></h2>
   <table>
     <thead>
-      <tr><th style="width:30%">我想……</th><th>终端（cmd / PowerShell）</th><th>Claude Code 会话内</th></tr>
+      <tr><th style="width:24%">我想……</th><th>终端（cmd / PowerShell）</th><th>Claude Code 会话内</th><th>AI 工具调用（MCP）</th></tr>
     </thead>
     <tbody>
       <tr>
         <td>开一个能被找到的会话</td>
-        <td><code>node src/main.mjs new web --cwd D:/projects/web</code></td>
+        <td><code>ctm new web --cwd D:/projects/web</code></td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
         <td>让会话只和指定组互通</td>
         <td><code>ctm new web --group frontend</code></td>
         <td>—</td>
+        <td>—</td>
       </tr>
       <tr>
         <td>让 <code>claude</code> 命令自动变成托管会话</td>
         <td><code>ctm install-wrap</code><br><small style="color:#8b98a8">然后把 <code>~/.ctm/bin</code> 前置到 PATH</small></td>
+        <td>—</td>
         <td>—</td>
       </tr>
       <tr>
         <td>看看有哪些会话、谁离线</td>
         <td><code>ctm list</code></td>
         <td><code>/ctm:list</code></td>
+        <td><code>ctm_list({})</code></td>
       </tr>
       <tr>
         <td>发一条通知</td>
         <td>—</td>
         <td><code>/ctm:tell web 接口字段改了</code></td>
+        <td><code>ctm_tell({ to: "web", text: "…" })</code></td>
       </tr>
       <tr>
         <td>提一个问题</td>
         <td>—</td>
         <td><code>/ctm:ask web 端口是多少？</code></td>
+        <td><code>ctm_ask({ to: "web", text: "…" })</code></td>
       </tr>
       <tr>
         <td>回复某条消息</td>
         <td>—</td>
         <td><code>/ctm:reply &lt;短id&gt; 收到</code><br><small style="color:#8b98a8">id 在消息前缀的 <code>#</code> 后面</small></td>
+        <td><code>ctm_reply({ id: "7f3a1c2d", text: "收到" })</code></td>
       </tr>
       <tr>
         <td>只把离线的会话打开</td>
         <td><code>ctm start web</code></td>
         <td><code>/ctm:start web</code></td>
+        <td><code>ctm_start({ name: "web" })</code></td>
       </tr>
       <tr>
         <td>在新的托管会话里恢复历史对话</td>
         <td><code>ctm resume &lt;sessionId&gt;</code></td>
         <td>—</td>
+        <td>—</td>
       </tr>
       <tr>
         <td>组内讨论频道</td>
         <td><code>ctm room create api 议题</code><br><code>ctm room start api</code></td>
-        <td><code>/ctm:room create api 议题</code><br><code>/ctm:room start api</code></td>
+        <td><code>/ctm:room create api 议题</code></td>
+        <td><code>ctm_room({ action: "create", room: "api", topic: "…" })</code></td>
       </tr>
       <tr>
         <td>结束会话<br><small style="color:#8b98a8">（保留注册信息，之后还能被拉起）</small></td>
         <td>在会话窗口按 <code>Ctrl+C</code></td>
         <td>—</td>
+        <td>—</td>
       </tr>
       <tr>
         <td>彻底删除会话<br><small style="color:#8b98a8">（注册信息一起删，再也拉不起来）</small></td>
         <td><code>ctm kill web</code></td>
+        <td>—</td>
         <td>—</td>
       </tr>
     </tbody>
@@ -488,6 +564,40 @@
 
 <script>
 (() => {
+  const VIEW_LABEL = {
+    shell: '你在终端',
+    chat: '你在会话里',
+    ai: 'AI 自己调用',
+  };
+
+  // 终端专属操作（安装、启动、包装）在会话/工具视角下的说明
+  const TERMINAL_ONLY = {
+    chat: {
+      lines: [
+        { t: '# 这一步只能在终端里做', c: 'dim' },
+        { t: '# Claude Code 会话内没有对应的斜杠命令', c: 'dim' },
+      ],
+      tip: '<b>这是终端侧的操作。</b><code>/ctm:*</code> 命令负责发消息、看列表、讨论；安装、包装、启动属于终端。',
+    },
+    ai: {
+      lines: [
+        { t: '# 这一步没有 AI 工具调用', c: 'dim' },
+        { t: '# 启动宿主、安装、改 PATH 都属于人的操作', c: 'dim' },
+      ],
+      tip: '<b>AI 不会替你启动托管会话、装包装或改 PATH。</b>它能做的是在会话里调用 <code>ctm_*</code> 工具收发消息。',
+    },
+  };
+
+  // 终端 CLI 没有“发消息”子命令；发送动作发生在会话内
+  const SHELL_NO_SEND = {
+    lines: [
+      { t: '# 终端本身没有“发消息”子命令', c: 'dim' },
+      { t: '# 先进入一个加载了插件的会话：', c: 'dim' },
+      { t: '$ claude --plugin-dir D:/projects/claudecode-plugings/ctm', c: 'cmd' },
+    ],
+    tip: '<b><code>ctm</code> CLI 只负责启动、列表、频道、包装。</b>发消息请用会话内的 <code>/ctm:ask</code>，或让 AI 调用 <code>ctm_ask</code>。',
+  };
+
   const scenes = [
     {
       title: '场景一 · 开一个能收信的会话',
@@ -498,6 +608,10 @@
             { t: '$ node src/main.mjs new web --cwd D:/projects/web', c: 'cmd' },
           ],
           b: 'offline',
+          views: {
+            chat: TERMINAL_ONLY.chat,
+            ai: TERMINAL_ONLY.ai,
+          },
           tip: '<b>为什么要用 ctm new：</b>只有这种会话的输入通道由 ctm 宿主持有，别的进程才能往里写消息。普通 claude 没有这个通道。',
         },
         {
@@ -537,13 +651,30 @@
       steps: [
         {
           lines: [
-            { t: '# 终端 2 —— 你的 claude，已加载 ctm 插件', c: 'dim' },
-            { t: '> /ctm:ask web 认证服务的端口是多少？', c: 'cmd' },
+            { t: '# 终端 2 —— 普通 claude', c: 'dim' },
+            { t: '$ claude --plugin-dir D:/projects/claudecode-plugings/ctm', c: 'cmd' },
+            { t: '[ctm] 插件已加载，/ctm:ask 可用', c: 'ok' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 终端 2 的 Claude Code 输入框', c: 'dim' },
+                { t: '> /ctm:ask web 认证服务的端口是多少？', c: 'cmd' },
+              ],
+              tip: '<b>斜杠命令是你敲的。</b>插件会把它转成一次 MCP 工具调用。发送方不必是托管会话——普通 claude 装了插件就能发。',
+            },
+            ai: {
+              lines: [
+                { t: '# 会话里的 AI 决定给 web 发消息', c: 'dim' },
+                { t: 'ctm_ask({ to: "web", text: "认证服务的端口是多少？" })', c: 'cmd' },
+              ],
+              tip: '<b>这是 AI 真正发出的东西：一次 MCP 工具调用。</b>你不用手敲；它不是 <code>claude</code> 命令，而是 AI 在会话内部调用的工具。',
+            },
+          },
           packet: 'nodeA',
           a: 'online',
           b: 'online',
-          tip: '<b>发送方不必是托管会话。</b>只要装了插件，任意 claude 都能用 /ctm:ask。你平时怎么用 claude，就怎么发。',
+          tip: '<b>发送方不必是托管会话。</b>只要装了插件，任意 claude 都能发消息。你平时怎么用 claude，就怎么发。',
         },
         {
           lines: [
@@ -592,6 +723,23 @@
             { t: '# 终端 2', c: 'dim' },
             { t: '> /ctm:ask web 帮我看看认证模块', c: 'cmd' },
           ],
+          views: {
+            shell: SHELL_NO_SEND,
+            chat: {
+              lines: [
+                { t: '# 终端 2 的 Claude Code 输入框', c: 'dim' },
+                { t: '> /ctm:ask web 帮我看看认证模块', c: 'cmd' },
+              ],
+              tip: '<b>和 B 开着时完全一样。</b>你不需要先手动启动 B，也不需要改参数——拉起初不拉起由插件判断。',
+            },
+            ai: {
+              lines: [
+                { t: '# 会话里的 AI 决定找 web', c: 'dim' },
+                { t: 'ctm_ask({ to: "web", text: "帮我看看认证模块" })', c: 'cmd' },
+              ],
+              tip: '<b>AI 不知道也不需要知道 web 是开着还是关着。</b>工具内部会读 <code>meta.json</code>，离线就先入队再拉起。',
+            },
+          },
           packet: 'nodeA',
           b: 'offline',
           tip: '<b>命令和 B 开着时完全一样。</b>你不需要先手动启动 B，也不需要改参数。',
@@ -647,16 +795,42 @@
           aName: 'a · frontend', aSub: 'ctm 托管会话',
           bName: 'd · backend', bSub: 'ctm 托管会话',
           a: 'online', b: 'online',
+          views: {
+            chat: TERMINAL_ONLY.chat,
+            ai: TERMINAL_ONLY.ai,
+          },
           tip: '<b>组在启动时确定。</b>同一个组名就是同一张“通讯录”。a、b、c 都写 <code>--group frontend</code>，d、e 写 <code>--group backend</code>。不传 <code>--group</code> 的会话自成一个独立组。',
         },
         {
           lines: [
-            { t: '# 在 a 的会话里', c: 'dim' },
-            { t: '> /ctm:list', c: 'cmd' },
-            { t: '[ { 名称: "a", 组: "frontend" },', c: '' },
-            { t: '  { 名称: "b", 组: "frontend" },', c: '' },
-            { t: '  { 名称: "c", 组: "frontend" } ]', c: '' },
+            { t: '# 终端里看全量', c: 'dim' },
+            { t: '$ ctm list', c: 'cmd' },
+            { t: 'a  frontend  idle', c: '' },
+            { t: 'b  frontend  busy', c: '' },
+            { t: 'c  frontend  idle', c: '' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 在 a 的会话里', c: 'dim' },
+                { t: '> /ctm:list', c: 'cmd' },
+                { t: '[ { 名称: "a", 组: "frontend" },', c: '' },
+                { t: '  { 名称: "b", 组: "frontend" },', c: '' },
+                { t: '  { 名称: "c", 组: "frontend" } ]', c: '' },
+              ],
+              tip: '<b>列表不是“过滤显示”，是根本读不到。</b>MCP server 用 <code>CTM_SESSION_NAME</code> 判断调用者身份，只返回组有交集的会话。跨组会话的名字和状态都不会出现。',
+            },
+            ai: {
+              lines: [
+                { t: '# AI 想看看同组有谁', c: 'dim' },
+                { t: 'ctm_list({})', c: 'cmd' },
+                { t: '[ { 名称: "a", 组: "frontend" },', c: '' },
+                { t: '  { 名称: "b", 组: "frontend" },', c: '' },
+                { t: '  { 名称: "c", 组: "frontend" } ]', c: '' },
+              ],
+              tip: '<b>同一个问题，三种入口。</b>终端 <code>ctm list</code> 是给运维看的全量表；会话里的 <code>/ctm:list</code> 与 <code>ctm_list</code> 都按当前会话的组过滤。',
+            },
+          },
           aName: 'a · frontend', aSub: 'ctm 托管会话',
           bName: 'd · backend', bSub: 'ctm 托管会话',
           a: 'online', b: 'online',
@@ -669,6 +843,24 @@
             { t: '> /ctm:ask d 接口字段改了吗？', c: 'cmd' },
             { t: '(错误) 会话不存在或不在当前可见组内：d', c: 'warn' },
           ],
+          views: {
+            shell: {
+              lines: [
+                { t: '# 终端没有“发消息”子命令', c: 'dim' },
+                { t: '# 先在 a 的会话里：', c: 'dim' },
+                { t: '> /ctm:ask d 接口字段改了吗？', c: 'cmd' },
+              ],
+              tip: '<b>跨组检查发生在工具内部。</b>无论从斜杠命令还是 MCP 工具发起，目标不在可见组内都会得到同一句拒绝。',
+            },
+            ai: {
+              lines: [
+                { t: '# AI 试图给 d 发消息', c: 'dim' },
+                { t: 'ctm_ask({ to: "d", text: "接口字段改了吗？" })', c: 'cmd' },
+                { t: '(错误) 会话不存在或不在当前可见组内：d', c: 'warn' },
+              ],
+              tip: '<b>AI 看到的也是同一句拒绝。</b>它拿不到 d 是否存在的信息；分组对模型同样是不透明的。',
+            },
+          },
           packet: 'nodeA',
           aName: 'a · frontend', aSub: 'ctm 托管会话',
           bName: 'd · backend', bSub: 'ctm 托管会话',
@@ -680,9 +872,27 @@
           lines: [
             { t: '# 终端 3 —— 不带 --group', c: 'dim' },
             { t: '$ ctm new f', c: 'cmd' },
-            { t: '> /ctm:list', c: 'cmd' },
-            { t: '[ { 名称: "f", 组: "(独立)", 未读: 0 } ]', c: '' },
+            { t: '$ ctm list', c: 'cmd' },
+            { t: 'f  (独立)  idle', c: '' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# f 的会话里', c: 'dim' },
+                { t: '> /ctm:list', c: 'cmd' },
+                { t: '[ { 名称: "f", 组: "(独立)", 未读: 0 } ]', c: '' },
+              ],
+              tip: '<b>无组不等于“全部可见”。</b>无组会话是单成员组，只看得见自己。想加入协作，启动时带 <code>--group</code>；也可以在项目里放 <code>.ctm.json</code> 固定组名。',
+            },
+            ai: {
+              lines: [
+                { t: '# f 里的 AI 调用工具', c: 'dim' },
+                { t: 'ctm_list({})', c: 'cmd' },
+                { t: '[ { 名称: "f", 组: "(独立)", 未读: 0 } ]', c: '' },
+              ],
+              tip: '<b>AI 只看得到自己。</b>它不会知道 a、b、c、d 的存在——无组会话的可见集合就是它自己。',
+            },
+          },
           aName: 'f · (独立)', aSub: '只看得见自己',
           bName: 'd · backend', bSub: 'ctm 托管会话',
           a: 'online', b: 'online',
@@ -698,6 +908,10 @@
           aName: 'b · frontend,shared', aSub: '多组交集',
           bName: 'd · backend', bSub: 'ctm 托管会话',
           a: 'online', b: 'online',
+          views: {
+            chat: TERMINAL_ONLY.chat,
+            ai: TERMINAL_ONLY.ai,
+          },
           flow: '组交集 = 桥接，但不自动转发',
           tip: '<b>多组会话是桥接点，不是路由器。</b>它能同时看见两边，但消息不会自己从 frontend 流到 shared。跨组传播必须由 b 自己决定，避免消息在组之间悄悄扩散。',
         },
@@ -716,6 +930,7 @@
           aName: '你的终端', aSub: 'PATH 已前置',
           bName: '托管会话', bSub: '还没有启动',
           b: 'offline',
+          views: { chat: TERMINAL_ONLY.chat, ai: TERMINAL_ONLY.ai },
           flow: '安装包装脚本',
           tip: '<b>它只生成一个脚本，不改 PATH。</b>包装脚本调用 <code>ctm wrap</code>，由 ctm 判断这次 <code>claude</code> 是交互式还是非交互式。',
         },
@@ -728,6 +943,7 @@
           aName: '你的终端', aSub: '敲 claude',
           bName: 'my-app', bSub: 'ctm 宿主 + claude',
           a: 'online', b: 'online',
+          views: { chat: TERMINAL_ONLY.chat, ai: TERMINAL_ONLY.ai },
           flow: 'claude → 自动托管',
           tip: '<b>不用再记 ctm new。</b>会话名取当前目录名；同名会话还在运行就自动加后缀（<code>my-app-2</code>）。启动后它就是一个能收信的会话。',
         },
@@ -742,6 +958,7 @@
           aName: '你的终端', aSub: '非交互用法',
           bName: 'my-app', bSub: 'ctm 宿主 + claude',
           a: 'online', b: 'online',
+          views: { chat: TERMINAL_ONLY.chat, ai: TERMINAL_ONLY.ai },
           flow: '透传，不包装',
           tip: '<b><code>--version</code>、<code>-p</code>、<code>mcp</code>、<code>config</code> 等用法直接透传</b>给真正的 claude。脚本、CI、别的工具调用 claude 时，不会被意外塞进一个终端宿主。',
         },
@@ -754,6 +971,7 @@
           aName: '你的终端', aSub: '解析真实 claude',
           bName: 'my-app', bSub: 'ctm 宿主 + claude',
           a: 'online', b: 'online',
+          views: { chat: TERMINAL_ONLY.chat, ai: TERMINAL_ONLY.ai },
           flow: '跳过包装，防止递归',
           tip: '<b>这是包装方案最容易踩的坑。</b>解析器还要识别“node.exe + cli.js”这种安装形态——不能把 node.exe 本身当成 claude。两条规则都在 <code>src/resolve-claude.mjs</code> 里。',
         },
@@ -764,10 +982,28 @@
       steps: [
         {
           lines: [
-            { t: '# 在 a 的会话里', c: 'dim' },
-            { t: '> /ctm:room create api 认证接口怎么改', c: 'cmd' },
+            { t: '# 终端 —— 用 CLI 建频道', c: 'dim' },
+            { t: '$ ctm room create api 认证接口怎么改 --group frontend', c: 'cmd' },
             { t: '{ "name": "api", "group": "frontend", "round": 0 }', c: '' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 在 a 的会话里', c: 'dim' },
+                { t: '> /ctm:room create api 认证接口怎么改', c: 'cmd' },
+                { t: '{ "name": "api", "group": "frontend", "round": 0 }', c: '' },
+              ],
+              tip: '<b>频道属于一个组。</b>组外会话既看不到频道，也不能发言。频道存储在 <code>~/.ctm/rooms/api/</code>，成员各自在自己的窗口里操作。',
+            },
+            ai: {
+              lines: [
+                { t: '# AI 决定建一个讨论频道', c: 'dim' },
+                { t: 'ctm_room({ action: "create", room: "api", topic: "认证接口怎么改" })', c: 'cmd' },
+                { t: '{ "name": "api", "group": "frontend", "round": 0 }', c: '' },
+              ],
+              tip: '<b>AI 调用的是 <code>ctm_room</code> 工具，不是终端命令。</b><code>group</code> 不传时默认取当前会话的组。',
+            },
+          },
           aName: 'a · frontend', aSub: '发起讨论',
           bName: 'b · frontend', bSub: '同组成员',
           a: 'online', b: 'online',
@@ -776,10 +1012,31 @@
         },
         {
           lines: [
-            { t: '> /ctm:room start api 第一轮：字段命名', c: 'cmd' },
+            { t: '# 终端', c: 'dim' },
+            { t: '$ ctm room start api 第一轮：字段命名', c: 'cmd' },
             { t: '{ "round": 1, "sent": ["b", "c"],', c: '' },
             { t: '  "note": "议题已写入各成员收件箱" }', c: '' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 在 a 的会话里', c: 'dim' },
+                { t: '> /ctm:room start api 第一轮：字段命名', c: 'cmd' },
+                { t: '{ "round": 1, "sent": ["b", "c"],', c: '' },
+                { t: '  "note": "议题已写入各成员收件箱" }', c: '' },
+              ],
+              tip: '<b>start 只是把议题排队。</b>它不会等待成员回答，也不会自动开始下一轮。成员离线时消息留在收件箱，等它启动后补投。',
+            },
+            ai: {
+              lines: [
+                { t: '# AI 发起第一轮', c: 'dim' },
+                { t: 'ctm_room({ action: "start", room: "api", text: "第一轮：字段命名" })', c: 'cmd' },
+                { t: '{ "round": 1, "sent": ["b", "c"],', c: '' },
+                { t: '  "note": "议题已写入各成员收件箱" }', c: '' },
+              ],
+              tip: '<b>工具会返回投递结果。</b>AI 能看到哪些成员收到了、哪些离线待补投，但不会替它们发言。',
+            },
+          },
           packet: 'inbox',
           inboxHot: true,
           aName: 'a · frontend', aSub: '发起讨论',
@@ -790,10 +1047,28 @@
         },
         {
           lines: [
-            { t: '# 在 b 的会话里', c: 'dim' },
-            { t: '> /ctm:room say api 先加版本号', c: 'cmd' },
-            { t: '> /ctm:room say api 保持向后兼容', c: 'cmd' },
+            { t: '# 终端', c: 'dim' },
+            { t: '$ ctm room say api 先加版本号', c: 'cmd' },
+            { t: '$ ctm room say api 保持向后兼容', c: 'cmd' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 在 b 的会话里', c: 'dim' },
+                { t: '> /ctm:room say api 先加版本号', c: 'cmd' },
+                { t: '> /ctm:room say api 保持向后兼容', c: 'cmd' },
+              ],
+              tip: '<b>发言只追加，不改写历史。</b>每条发言都带来源与轮次，summary 按轮次汇总，不会把不同轮的讨论混在一起。',
+            },
+            ai: {
+              lines: [
+                { t: '# b 的 AI 决定发言', c: 'dim' },
+                { t: 'ctm_room({ action: "say", room: "api", text: "先加版本号" })', c: 'cmd' },
+                { t: 'ctm_room({ action: "say", room: "api", text: "保持向后兼容" })', c: 'cmd' },
+              ],
+              tip: '<b>每条发言都是一次独立调用。</b>AI 可以连续追加，但不会覆盖别人的话。',
+            },
+          },
           aName: 'a · frontend', aSub: '发起讨论',
           bName: 'b · frontend', bSub: '正在发言',
           a: 'online', b: 'online',
@@ -802,12 +1077,37 @@
         },
         {
           lines: [
-            { t: '> /ctm:room summary api', c: 'cmd' },
+            { t: '# 终端', c: 'dim' },
+            { t: '$ ctm room summary api', c: 'cmd' },
             { t: '~/.ctm/rooms/api/summary.md', c: 'ok' },
             { t: '# 第 1 轮：字段命名', c: 'dim' },
             { t: '- a（议题）：第一轮：字段命名', c: '' },
             { t: '- b：先加版本号', c: '' },
           ],
+          views: {
+            chat: {
+              lines: [
+                { t: '# 在 a 的会话里', c: 'dim' },
+                { t: '> /ctm:room summary api', c: 'cmd' },
+                { t: '~/.ctm/rooms/api/summary.md', c: 'ok' },
+                { t: '# 第 1 轮：字段命名', c: 'dim' },
+                { t: '- a（议题）：第一轮：字段命名', c: '' },
+                { t: '- b：先加版本号', c: '' },
+              ],
+              tip: '<b>不自动多轮的取舍：</b>自动多轮会让会话互相触发，token 成本不可控。每一轮都由你显式 start，讨论节奏留在人手里。',
+            },
+            ai: {
+              lines: [
+                { t: '# AI 请求汇总', c: 'dim' },
+                { t: 'ctm_room({ action: "summary", room: "api" })', c: 'cmd' },
+                { t: '~/.ctm/rooms/api/summary.md', c: 'ok' },
+                { t: '# 第 1 轮：字段命名', c: 'dim' },
+                { t: '- a（议题）：第一轮：字段命名', c: '' },
+                { t: '- b：先加版本号', c: '' },
+              ],
+              tip: '<b>summary 是只读汇总。</b>AI 可以生成它、读它，但不会因此开启下一轮。',
+            },
+          },
           aName: 'a · frontend', aSub: '发起讨论',
           bName: 'b · frontend', bSub: '同组成员',
           a: 'online', b: 'online',
@@ -835,11 +1135,33 @@
   const prevBtn = $('prev');
   const nextBtn = $('next');
   const tabButtons = [...document.querySelectorAll('.tabs button')];
+  const perspButtons = [...document.querySelectorAll('.persp-btn')];
+  const perspNote = $('perspNote');
+
+  const PERSP_NOTES = {
+    shell: '<b>你在终端。</b>这里敲的是 <code>claude</code>、<code>ctm new</code>、<code>ctm list</code>——启动会话、装包装、看全量列表。',
+    chat: '<b>你在 Claude Code 的输入框里。</b>这里敲的是 <code>/ctm:ask</code> 这类斜杠命令；插件会把它变成一次 MCP 工具调用。',
+    ai: '<b>这是 AI 自己发出的调用。</b>它不叫 <code>claude</code>，也不是终端命令——是模型在会话内部调用 <code>ctm_ask</code> 等 MCP 工具。',
+  };
 
   let sceneIdx = 0;
   let stepIdx = 0;
   let timer = null;
   let playing = false;
+  let view = 'shell';
+
+  function linesFor(st) {
+    if (!st.views) return st.lines;
+    if (view === 'shell' && !st.views.shell) return st.lines;
+    const v = st.views[view];
+    return (v && v.lines) || st.lines;
+  }
+
+  function tipFor(st) {
+    if (!st.views) return st.tip;
+    const v = st.views[view];
+    return (v && v.tip) || st.tip;
+  }
 
   nodeA.classList.add('online');
   nodeB.classList.remove('online', 'starting');
@@ -868,7 +1190,7 @@
     terminal.innerHTML = '';
     const sc = scenes[sceneIdx];
     for (let i = 0; i <= step; i++) {
-      for (const line of sc.steps[i].lines) {
+      for (const line of linesFor(sc.steps[i])) {
         const div = document.createElement('div');
         div.className = 'line' + (line.c ? ' ' + line.c : '');
         div.textContent = line.t || ' ';
@@ -901,7 +1223,7 @@
     const sc = scenes[sceneIdx];
     const st = sc.steps[stepIdx];
 
-    termTitle.textContent = sc.title;
+    termTitle.textContent = `${sc.title} · ${VIEW_LABEL[view]}`;
     renderTerminal(stepIdx);
 
     $('nameA').textContent = st.aName || '终端 A';
@@ -941,7 +1263,7 @@
       flowLabel.textContent = st.flow || '消息方向';
     }
 
-    tip.innerHTML = st.tip;
+    tip.innerHTML = tipFor(st);
 
     stepLabel.textContent = `${sceneIdx + 1} / ${scenes.length} · 第 ${stepIdx + 1} / ${sc.steps.length} 步`;
     prevBtn.disabled = sceneIdx === 0 && stepIdx === 0;
@@ -953,7 +1275,8 @@
       if (last) {
         setPlaying(false);
       } else {
-        timer = setTimeout(next, 2400);
+        const n = Math.min(6400, 1600 + linesFor(st).length * 420);
+        timer = setTimeout(next, n);
       }
     }
   }
@@ -1037,11 +1360,40 @@
     });
   });
 
+  function setView(v) {
+    view = v;
+    perspButtons.forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+    perspNote.innerHTML = PERSP_NOTES[v];
+    applyStep();
+  }
+
+  perspButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.view === view) return;
+      setView(btn.dataset.view);
+    });
+  });
+
+  window.addEventListener('keydown', (e) => {
+    const el = e.target;
+    if (el && el.closest && (el.closest('button') || el.tagName === 'INPUT')) return;
+    if (e.key === 'ArrowRight') {
+      setPlaying(false);
+      clearTimer();
+      next();
+    } else if (e.key === 'ArrowLeft') {
+      setPlaying(false);
+      clearTimer();
+      prev();
+    }
+  });
+
   window.addEventListener('resize', () => {
     const st = scenes[sceneIdx].steps[stepIdx];
     if (st.packet) placePacket(st.packet);
   });
 
+  setView('shell');
   loadScene(0, false);
 })();
 </script>
