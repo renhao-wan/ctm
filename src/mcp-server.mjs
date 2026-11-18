@@ -11,6 +11,7 @@
 // 目标离线时，本进程会按 meta.json 记录重新拉起目标宿主（新终端窗口），
 // 宿主启动后自行从收件箱补投。
 import { createInterface } from 'node:readline';
+import fs from 'node:fs';
 import { listSessions, readMeta, isAlive } from './registry.mjs';
 import { enqueue, findMessage, pendingMessages, readDelivered } from './inbox.mjs';
 import { launchSession } from './launch.mjs';
@@ -25,6 +26,9 @@ import {
   startRound,
   writeSummary,
 } from './rooms.mjs';
+
+// 版本号以 package.json 为准，避免发布时漏改这里的硬编码
+const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 // 没有 CTM_SESSION_NAME 说明调用者是用户本人（普通 claude 或 CLI）。
 // 不要把它伪装成一个名叫 claude 的会话，否则目标端无法区分人与会话。
@@ -389,7 +393,7 @@ rl.on('line', (line) => {
     return ok(id, {
       protocolVersion: params?.protocolVersion || '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'ctm', version: '0.2.0' },
+      serverInfo: { name: 'ctm', version: PKG.version },
     });
   }
 
