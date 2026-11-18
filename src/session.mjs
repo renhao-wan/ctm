@@ -6,7 +6,8 @@ import { spawn as ptySpawn } from 'node-pty';
 import { ScreenBuffer, Bootstrap, isBusyText, normalize } from './tui.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { writeSettings } from './hooks.mjs';
-import { writeMeta, removeMeta } from './registry.mjs';
+import { writeMeta, readMeta, removeMeta } from './registry.mjs';
+import { pendingMessages, markDelivered, readDelivered, formatMessage } from './inbox.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -109,9 +110,13 @@ export class Session {
     });
 
     this.bindStdin();
+    this.delivered = readDelivered(this.name);
+    this.inboxBusy = false;
     this.timers = [
       setInterval(() => this.tick(), 250),
       setInterval(() => this.pollEvents(), 500),
+      setInterval(() => this.pumpInbox(), 500),
+      setInterval(() => this.syncMeta(), 5000),
     ];
   }
 
@@ -120,6 +125,11 @@ export class Session {
     process.stdin.resume();
     process.stdin.on('data', (d) => {
       this.lastUserKeyAt = Date.now();
+      // 用户在需要确认的提示上按了键：交回启动状态机重新判定
+      if (this.status === 'needs-input') {
+        this.bootstrap.startedAt = Date.now();
+        this.setStatus('starting');
+      }
       try {
         this.proc.write(d.toString('utf8'));
       } catch {
@@ -156,6 +166,8 @@ export class Session {
       }, 400);
     } else if (action === 'ready') {
       this.setStatus('ready');
+    } else if (action === 'needs-input') {
+      this.setStatus('needs-input');
     } else if (action === 'settled') {
       this.setStatus('idle');
     } else if (action === 'timeout') {
@@ -197,6 +209,19 @@ export class Session {
     if (this.status === s) return;
     this.status = s;
     this.onStatus(s);
+    this.syncMeta();
+  }
+
+  /** 把实时状态写回 meta.json，供 ctm list 与插件读取。 */
+  syncMeta() {
+    if (this.exited) return;
+    const meta = readMeta(this.name);
+    if (!meta) return;
+    writeMeta(this.name, {
+      ...meta,
+      status: this.status,
+      lastSeen: new Date().toISOString(),
+    });
   }
 
   get ready() {
@@ -237,6 +262,33 @@ export class Session {
     // 不能把会话卡在 busy —— 没有 Stop 会来，后续投递会永久阻塞。
     this.setStatus('idle');
     return { ok: false, reason: 'unconfirmed' };
+  }
+
+  /**
+   * 投递收件箱中的下一条消息。
+   * 只在 idle、用户最近 2 秒没有按键时进行；一次只投一条，
+   * 下一条要等本轮 Stop 回来、状态重新变为 idle。
+   */
+  async pumpInbox() {
+    if (this.inboxBusy || this.exited || this.status !== 'idle') return;
+    if (Date.now() - this.lastUserKeyAt < 2000) return;
+
+    const pending = pendingMessages(this.name, this.delivered);
+    if (pending.length === 0) return;
+
+    const msg = pending[0];
+    this.inboxBusy = true;
+    try {
+      const r = await this.inject(formatMessage(msg));
+      if (r.ok) {
+        markDelivered(this.name, msg.id);
+        this.delivered.add(msg.id);
+      }
+    } catch {
+      // 写失败：保持未投递，下一轮 tick 重试
+    } finally {
+      this.inboxBusy = false;
+    }
   }
 
   stop() {

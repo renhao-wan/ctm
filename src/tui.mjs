@@ -22,6 +22,9 @@ export const BUSY_MARKERS = ['esctointerrupt'];
 // 归一化去空格后用 trustthisfolder 可以同时命中。
 const TRUST_MARKERS = ['trustthisfolder'];
 const FULLSCREEN_MARKERS = ['fullscreenrenderer'];
+// 项目里存在 .mcp.json 时，claude 启动会要求确认是否加载其中的 MCP server。
+// 这等于授权执行第三方代码，不能由 ctm 代替用户按回车。
+const MCP_MARKERS = ['mcpserverfoundinthisproject'];
 
 export const TRUST_SELECTION = { NO: 'no', YES: 'yes', UNKNOWN: 'unknown' };
 
@@ -70,6 +73,12 @@ export function isFullscreenPrompt(t) {
   return FULLSCREEN_MARKERS.some((m) => t.includes(m));
 }
 
+export function isMcpPrompt(t) {
+  // 只看屏幕末尾：raw 是累积缓冲，提示关闭后历史文本仍会留在前面
+  const tail = t.slice(-2000);
+  return MCP_MARKERS.some((m) => tail.includes(m));
+}
+
 /**
  * 保留最近 N 字节的屏幕缓冲。
  * 必须限额：PTY 会话可能连续输出数小时，不截断会无限增长。
@@ -115,7 +124,7 @@ export class Bootstrap {
 
   /**
    * @param {string} t 归一化后的屏幕文本
-   * @returns {'enter'|'trust-down'|'trust-unknown'|'not-now'|'ready'|'settled'|'waiting'|'timeout'|'done'}
+   * @returns {'enter'|'trust-down'|'trust-unknown'|'not-now'|'needs-input'|'ready'|'settled'|'waiting'|'timeout'|'done'}
    *   'settled' 只返回一次；之后返回 'done'，由调用方停止接管状态，
    *   否则启动状态机会每轮 tick 把 hook 设置的 busy 覆盖成 idle。
    */
@@ -158,6 +167,12 @@ export class Bootstrap {
     if (!this.fullscreenAnswered && isFullscreenPrompt(t)) {
       this.fullscreenAnswered = true;
       return 'not-now';
+    }
+
+    if (isMcpPrompt(t)) {
+      // MCP server 可以执行任意代码，授权必须由用户做出，宿主不代按
+      this.startedAt = Date.now();
+      return 'needs-input';
     }
 
     if (isReadyText(t)) {

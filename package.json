@@ -1,18 +1,27 @@
 {
   "name": "ctm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude Terminal Multiplexer — 用 ConPTY 托管 Claude Code 交互式会话，让多个会话互通",
   "type": "module",
   "private": true,
   "bin": {
     "ctm": "src/main.mjs"
   },
+  "files": [
+    ".claude-plugin",
+    ".mcp.json",
+    "commands",
+    "src"
+  ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "start": "node src/main.mjs",
-    "doctor": "node src/main.mjs doctor"
+    "doctor": "node src/main.mjs doctor",
+    "test": "node test/unit-tui.mjs && node test/unit-inbox.mjs",
+    "test:smoke": "node test/m1-smoke.mjs",
+    "test:m2": "node test/m2-delivery.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0"

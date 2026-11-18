@@ -5,6 +5,7 @@ import {
   isReadyText,
   normalize,
   READY_MARKERS,
+  isMcpPrompt,
   trustSelection,
   TRUST_SELECTION,
 } from '../src/tui.mjs';
@@ -104,6 +105,34 @@ check('信任提示布局无法识别时不猜按键', () => {
 check('fullscreen 提示选择 not now', () => {
   const b = new Bootstrap({ settleMs: 0 });
   assert.equal(b.step(norm('Try the new fullscreen renderer?\n1. Yes, try it\n2. Not now')), 'not-now');
+});
+
+// 项目自带 .mcp.json 时出现；MCP server 可执行任意代码，不能代用户按回车
+const SCREEN_MCP = `
+New MCP server found in this project: ctm
+MCP servers may execute code or access system resources. All tool calls require approval.
+❯ Use this MCP server
+  Use this and all future MCP servers in this project
+  Continue without using this MCP server
+Enter to confirm · Esc to cancel
+`;
+
+check('MCP server 确认提示交给用户处理', () => {
+  assert.equal(isMcpPrompt(norm(SCREEN_MCP)), true);
+  const b = new Bootstrap({ settleMs: 0 });
+  assert.equal(b.step(norm(SCREEN_MCP)), 'needs-input');
+});
+
+check('MCP 提示关闭后可以继续启动', () => {
+  const b = new Bootstrap({ settleMs: 0 });
+  assert.equal(b.step(norm(SCREEN_MCP)), 'needs-input');
+  assert.equal(b.step(norm(SCREEN_319)), 'ready');
+});
+
+check('MCP 历史文本不会让会话永远停在 needs-input', () => {
+  // 提示关闭后，旧文本仍留在累积缓冲前部；只检查屏幕末尾
+  const longTail = 'x'.repeat(3000);
+  assert.equal(isMcpPrompt(norm(`${SCREEN_MCP}\n${longTail}`)), false);
 });
 
 check('就绪后需要 settle', () => {

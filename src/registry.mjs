@@ -14,7 +14,10 @@ export function sessionDir(name) {
 export function writeMeta(name, meta) {
   const dir = sessionDir(name);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2));
+  // 原子替换：读取方可能并发读，不能看到半个 JSON
+  const tmp = path.join(dir, `meta.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify(meta, null, 2));
+  fs.renameSync(tmp, path.join(dir, 'meta.json'));
 }
 
 export function readMeta(name) {

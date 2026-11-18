@@ -80,7 +80,7 @@ function cmdList() {
   }
   const rows = sessions.map((m) => ({
     名称: m.name,
-    状态: isAlive(m.pid) ? 'alive' : 'dead',
+    状态: isAlive(m.pid) ? m.status || 'alive' : 'dead',
     PID: m.pid,
     目录: m.cwd,
     版本: m.version || '',

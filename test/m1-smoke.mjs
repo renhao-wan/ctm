@@ -8,6 +8,9 @@ import path from 'node:path';
 import { Session } from '../src/session.mjs';
 
 const CTM_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ctm-smoke-'));
+// 不要用本仓库作为 cwd：仓库自带 .mcp.json，会触发 MCP server 确认，需要用户按键。
+const CWD = process.env.M1_CWD || path.join(os.tmpdir(), 'ctm-smoke-cwd');
+fs.mkdirSync(CWD, { recursive: true });
 const NAME = 'smoke';
 const EVENTS = path.join(CTM_DIR, 'events', `${NAME}.jsonl`);
 
@@ -29,7 +32,7 @@ const timeline = [];
 const started = Date.now();
 const session = new Session({
   name: NAME,
-  cwd: process.cwd(),
+  cwd: CWD,
   ctmDir: CTM_DIR,
   settleMs: 3000,
   onStatus: (s) => {
