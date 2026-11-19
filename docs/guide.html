@@ -114,8 +114,23 @@
   }
   .three b { display: block; color: var(--cyan); margin-bottom: 4px; }
   .section-lead { color: var(--dim); font-size: 13px; margin: 6px 0 18px; }
+  .explain {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .explain li {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 10px;
+    padding: 4px 0;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  .explain li code { color: var(--cyan); background: none; border: 0; padding: 0; }
   @media (max-width: 860px) {
     .three { grid-template-columns: 1fr; }
+    .explain li { grid-template-columns: 1fr; gap: 2px; }
   }
 
   /* ---------- tabs ---------- */
@@ -419,6 +434,15 @@
     ctm 给它们加一条通道：在 A 里说一句“问一下 B”，这句话会真的出现在 B 的输入框里。
   </div>
 
+  <div class="what">
+    <b>为什么教程里是 <code>node src/main.mjs new …</code>，不是直接敲 <code>claude</code>？</b>
+    因为普通 <code>claude</code> 的输入框只连着你的键盘，别的程序写不进去。
+    要让 A 的话出现在 B 的输入框，B 的 claude 必须由一个“拿着它输入输出”的进程启动——
+    这个进程就是 ctm。<br>
+    <b>所以 <code>ctm new</code> 不是替代 claude，它就是启动 claude，只是外面多包了一层。</b>
+    你看到的界面、模型、斜杠命令，全都还是原来的 claude。
+  </div>
+
   <h2>照做一遍 <small>每步都给出真实输出</small></h2>
 
   <div class="quick">
@@ -436,8 +460,15 @@ node src/main.mjs doctor</code></pre>
     <div class="qstep">
       <div class="qnum">1</div>
       <div class="qbody">
-        <b>开第一个会话（终端 1）</b>
+        <b>用 ctm 启动第一个 claude（终端 1）</b>
         <pre><code>node src/main.mjs new web --cwd D:/projects/web --group dev</code></pre>
+        <ul class="explain">
+          <li><code>node src/main.mjs</code><span>用 Node 运行 ctm；全局安装后这里就是 <code>ctm</code></span></li>
+          <li><code>new</code><span>开一个新的托管会话</span></li>
+          <li><code>web</code><span>给这个会话起的名字，之后 <code>/ctm:ask web …</code> 用它</span></li>
+          <li><code>--cwd D:/projects/web</code><span>claude 在哪个目录工作，换成你自己的项目路径</span></li>
+          <li><code>--group dev</code><span>放进 <code>dev</code> 组；两个会话的组名必须一样</span></li>
+        </ul>
         <p>它会启动一个真正的 claude。等状态变成 <code>idle</code>（通常 10～20 秒），
         这个窗口就“能收信”了。首次进入目录的信任提示会由 ctm 自动处理。</p>
       </div>
@@ -448,7 +479,8 @@ node src/main.mjs doctor</code></pre>
       <div class="qbody">
         <b>开第二个会话（终端 2）</b>
         <pre><code>node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
-        <p>关键是 <code>--group dev</code> 两边要一样。组名就是通讯录，
+        <p>和第 1 步只有两处不同：名字是 <code>api</code>，工作目录换成另一个项目。
+        <b>关键是 <code>--group dev</code> 两边要一样。</b>组名就是通讯录，
         不同组的会话互相看不见。</p>
       </div>
     </div>
@@ -498,6 +530,44 @@ node src/main.mjs doctor</code></pre>
       <b>关窗口 ≠ 删除</b>
       按 <code>Ctrl+C</code> 关窗口只留下 <code>pid=null</code>，别的会话还能把它拉起来。
       <code>ctm kill</code> 才会删掉注册信息，之后再也找不到它。
+    </div>
+  </div>
+
+  <h2>不想敲这么长的命令？ <small>三种启动方式，效果完全一样</small></h2>
+  <div class="quick">
+    <div class="qstep">
+      <div class="qnum">A</div>
+      <div class="qbody">
+        <b>仓库里直接跑（上面的教程用的就是这个）</b>
+        <pre><code>node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
+        <p>不用安装任何东西，但每次都要写全路径。</p>
+      </div>
+    </div>
+    <div class="qstep">
+      <div class="qnum">B</div>
+      <div class="qbody">
+        <b>全局安装，之后用短命令</b>
+        <pre><code>npm install -g .
+ctm new api --cwd D:/projects/api --group dev</code></pre>
+        <p>在 ctm 目录里执行 <code>npm install -g .</code>，参数完全一样，
+        只是把 <code>node src/main.mjs</code> 换成 <code>ctm</code>。</p>
+      </div>
+    </div>
+    <div class="qstep">
+      <div class="qnum">C</div>
+      <div class="qbody">
+        <b>让 <code>claude</code> 命令自己变成托管会话</b>
+        <pre><code>npm install -g .
+ctm install-wrap</code></pre>
+        <p>然后把 <code>%USERPROFILE%\.ctm\bin</code> 放到 PATH 最前面。之后照旧敲：</p>
+        <pre><code>claude</code></pre>
+        <p>ctm 会在背后接管它，会话名自动取当前目录名。
+        这是「什么都不用记」的方案，代价是要改一次 PATH。</p>
+        <p><b>这一步只需要做一次，而且完全可选</b>——不做也能用 A 或 B。
+        只有换了 Node 安装、移动了 ctm 目录或重装过 ctm 时，
+        包装脚本里记录的绝对路径会失效，需要重新执行一次
+        <code>ctm install-wrap</code>。</p>
+      </div>
     </div>
   </div>
 
