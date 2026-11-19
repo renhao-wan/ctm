@@ -62,6 +62,30 @@ ctm new api --cwd D:/projects/api --group dev
 
 ---
 
+## 插件是自动加载的，但你得知道两种会话的区别
+
+`ctm new` 启动的会话会**自动加载 ctm 插件**（内部加了 `--plugin-dir`），所以 `/ctm:list`、`/ctm:ask` 这些命令直接就能用，不需要任何额外操作。
+
+**你自己直接敲 `claude` 开的普通会话没有插件**，看不到 `/ctm:*` 命令。想让它也能发消息，启动时手动指定一次：
+
+```bash
+claude --plugin-dir "$(npm root -g)/@renhao-wan/ctm"
+```
+
+或者在 Claude Code 里用 `/plugin` 安装 ctm。
+
+两种会话的差别：
+
+| | `ctm new` 启动 | 普通 `claude` 启动 |
+|---|---|---|
+| 能发消息（`/ctm:ask`） | ✅ | 需要手动加 `--plugin-dir` |
+| 能收消息 | ✅ | ❌ 收不到，没有输入通道 |
+| 窗口关了能被重新拉起 | ✅ | ❌ |
+
+**结论：想让别人给你发消息，就用 `ctm new` 启动。**
+
+---
+
 ## 常用命令
 
 | 你在终端里敲 | 作用 |
