@@ -43,7 +43,11 @@ node src/main.mjs room start api      # 把议题投递给同组成员
 
 `ctm new` 会接管当前终端：输入输出透传给托管的 `claude`，Ctrl+C 结束。
 
-在另一个 Claude Code 会话里安装本插件后：
+**`ctm new` 启动的会话会自动加载本插件**（等价于追加 `--plugin-dir <ctm 目录>`），
+所以在这个会话里直接对 AI 说“问一下 web”，或输入 `/ctm:ask web …` 都能用。
+CTM_NO_PLUGIN=1 可关闭自动加载，便于排查启动问题。
+
+在**普通** Claude Code 会话里（没有用 `ctm new` 启动）需要手动加载插件，才能发消息：
 
 ```text
 /ctm:list                          # 查看托管会话、状态与未读数
@@ -60,6 +64,7 @@ node src/main.mjs room start api      # 把议题投递给同组成员
 ```
 
 本地开发时可用 `claude --plugin-dir D:/projects/claudecode-plugings/ctm` 临时加载，正式安装走 `/plugin`。
+托管会话不需要这一步，`ctm new` 会自动加载。
 
 ### B 没开窗口时
 

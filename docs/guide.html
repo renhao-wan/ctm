@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ctm 使用指南 · 跟着动画走一遍</title>
+<title>ctm 使用指南 · 三分钟跑通</title>
 <style>
   :root {
     --bg: #0b1017;
@@ -54,6 +54,69 @@
   }
   .prereq b { display: block; color: var(--cyan); font-size: 12px; letter-spacing: .6px; margin-bottom: 3px; }
   .prereq small { color: var(--dim); }
+
+  /* ---------- 开头的“是什么” ---------- */
+  .what {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--green);
+    background: rgba(61,220,151,.05);
+    border-radius: 0 12px 12px 0;
+    padding: 14px 18px;
+    margin: 0 0 30px;
+    font-size: 14px;
+  }
+  .what b { color: var(--green); display: block; margin-bottom: 4px; }
+
+  /* ---------- 照做一遍 ---------- */
+  .quick { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .qstep {
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    gap: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    padding: 14px 16px;
+  }
+  .qnum {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(76,201,240,.14);
+    border: 1px solid rgba(76,201,240,.35);
+    color: var(--cyan); font-weight: 700; font-size: 14px;
+  }
+  .qbody b { color: var(--text); }
+  .qbody p { margin: 8px 0 0; color: var(--dim); font-size: 13px; }
+  .qbody p b, .qbody p code { color: var(--text); }
+  pre {
+    margin: 10px 0 0;
+    background: #010409;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  pre code { color: var(--cyan); font-family: inherit; background: none; border: 0; padding: 0; }
+  .three {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+    font-size: 13px;
+  }
+  .three div {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 12px 14px;
+  }
+  .three b { display: block; color: var(--cyan); margin-bottom: 4px; }
+  .section-lead { color: var(--dim); font-size: 13px; margin: 6px 0 18px; }
+  @media (max-width: 860px) {
+    .three { grid-template-columns: 1fr; }
+  }
 
   /* ---------- tabs ---------- */
   .tabs {
@@ -346,9 +409,100 @@
 <div class="wrap">
 
   <header>
-    <h1>ctm 使用指南 <span>·</span> 选个身份，跟着走一遍</h1>
-    <p>先点下面你是「谁」，动画里就只显示这个身份下真实的命令。看不懂就点「播放」，一个场景十几秒。</p>
+    <h1>ctm 使用指南</h1>
+    <p>让两个 Claude Code 窗口互相发消息。下面是一条能直接照做的路径，三分钟跑通。</p>
   </header>
+
+  <div class="what">
+    <b>ctm 是什么？</b>
+    你平时开两个终端，各跑一个 <code>claude</code>，它们互相不知道对方存在。
+    ctm 给它们加一条通道：在 A 里说一句“问一下 B”，这句话会真的出现在 B 的输入框里。
+  </div>
+
+  <h2>照做一遍 <small>每步都给出真实输出</small></h2>
+
+  <div class="quick">
+    <div class="qstep">
+      <div class="qnum">0</div>
+      <div class="qbody">
+        <b>先确认环境</b>
+        <pre><code>cd D:/projects/claudecode-plugings/ctm
+npm install
+node src/main.mjs doctor</code></pre>
+        <p>最后一行是 <code>结论：通过</code> 才继续。不是的话按提示修。</p>
+      </div>
+    </div>
+
+    <div class="qstep">
+      <div class="qnum">1</div>
+      <div class="qbody">
+        <b>开第一个会话（终端 1）</b>
+        <pre><code>node src/main.mjs new web --cwd D:/projects/web --group dev</code></pre>
+        <p>它会启动一个真正的 claude。等状态变成 <code>idle</code>（通常 10～20 秒），
+        这个窗口就“能收信”了。首次进入目录的信任提示会由 ctm 自动处理。</p>
+      </div>
+    </div>
+
+    <div class="qstep">
+      <div class="qnum">2</div>
+      <div class="qbody">
+        <b>开第二个会话（终端 2）</b>
+        <pre><code>node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
+        <p>关键是 <code>--group dev</code> 两边要一样。组名就是通讯录，
+        不同组的会话互相看不见。</p>
+      </div>
+    </div>
+
+    <div class="qstep">
+      <div class="qnum">3</div>
+      <div class="qbody">
+        <b>在 api 的窗口里发消息</b>
+        <p>直接对 claude 说人话就行：</p>
+        <pre><code>帮我问一下 web 会话，接口地址是什么</code></pre>
+        <p>AI 会自己调用 <code>ctm_ask</code>。你也可以用斜杠命令：</p>
+        <pre><code>/ctm:ask web 接口地址是什么？</code></pre>
+      </div>
+    </div>
+
+    <div class="qstep">
+      <div class="qnum">4</div>
+      <div class="qbody">
+        <b>在 web 的窗口里看到消息</b>
+        <pre><code>❯ [来自会话 api，工作区 D:/projects/api · #7f3a1c2d] 接口地址是什么？</code></pre>
+        <p>它变成 web 输入框里的一条用户输入并回车，web 的 AI 会正常回答。
+        <b>注意：回答不会自动传回 api。</b>需要 web 的 AI 用
+        <code>/ctm:reply 7f3a1c2d ...</code> 回复，或你再问一次。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <b>到这里就够了。</b>下面三块是“为什么”和“出问题怎么办”；
+    想先理解原理，直接跳到 <a href="#how">内部怎么运作</a>。
+  </div>
+
+  <h2>只需要记住三件事</h2>
+  <div class="three">
+    <div>
+      <b>谁能收信</b>
+      只有用 <code>ctm new</code> 启动的会话。普通 <code>claude</code> 的输入框不在 ctm 手里，
+      别的进程写不进去。它只能发，不能收。
+    </div>
+    <div>
+      <b>谁能发信</b>
+      任意 Claude Code 会话，只要加载了 ctm 插件。
+      用 <code>ctm new</code> 启动的会话会自动加载；普通 claude 需要
+      <code>claude --plugin-dir D:/…/ctm</code>。
+    </div>
+    <div>
+      <b>关窗口 ≠ 删除</b>
+      按 <code>Ctrl+C</code> 关窗口只留下 <code>pid=null</code>，别的会话还能把它拉起来。
+      <code>ctm kill</code> 才会删掉注册信息，之后再也找不到它。
+    </div>
+  </div>
+
+  <h2 id="how">内部怎么运作 <small>可选，不理解也能用</small></h2>
+  <p class="section-lead">三个视角看同一件事：你在终端敲的命令、你在会话里敲的斜杠命令、AI 自己调用的工具。</p>
 
   <div class="persp" role="group" aria-label="选择你现在的身份">
     <button class="persp-btn active" data-view="shell">
@@ -368,13 +522,6 @@
     </button>
   </div>
   <div class="persp-note" id="perspNote"></div>
-
-  <div class="prereq">
-    <div><b>1 · 谁能当接收方</b>必须用 <code>ctm new</code> 启动的会话。<br><small>普通 <code>claude</code> 只能发信，不能收信。</small></div>
-    <div><b>2 · 谁能当发送方</b>任意 Claude Code 会话，只要装了 ctm 插件。<br><small>装法见页面底部。</small></div>
-    <div><b>3 · 怎么算送达</b>消息变成对方输入框里的一条用户输入并回车。<br><small>不是留言板，是真注入。</small></div>
-    <div><b>4 · 谁能看见谁</b>启动时用 <code>--group</code> 分组，组内互相可见，组间双向隔离。<br><small>不带组的会话只看得见自己。</small></div>
-  </div>
 
   <nav class="tabs">
     <button data-scene="0" class="active">① 开一个能收信的会话</button>
@@ -432,6 +579,11 @@
   <div class="tip" id="tip">点「播放」开始。</div>
 
   <h2>命令速查 <small>同一件事，看你站在哪一边</small></h2>
+  <p class="section-lead">
+    下表里的 <code>ctm</code> 指全局安装后的命令（<code>npm install -g</code>）。
+    如果你是在仓库目录里直接跑，把 <code>ctm</code> 换成 <code>node src/main.mjs</code> 即可，
+    参数完全一样。
+  </p>
   <table>
     <thead>
       <tr><th style="width:24%">我想……</th><th>终端（cmd / PowerShell）</th><th>Claude Code 会话内</th><th>AI 工具调用（MCP）</th></tr>
@@ -554,7 +706,8 @@
 <span class="line cmd">$ cd D:/projects/claudecode-plugings/ctm</span>
 <span class="line cmd">$ npm install</span>
 <span class="line cmd">$ node src/main.mjs doctor        # 环境自检，最后一行应为“结论：通过”</span>
-<span class="line dim"># 临时加载插件（每次启动 claude 时带上）</span>
+<span class="line dim"># ctm new 启动的会话会自动加载 ctm 插件，不需要额外参数</span>
+<span class="line dim"># 普通 claude 想发消息时，才需要手动加载：</span>
 <span class="line cmd">$ claude --plugin-dir D:/projects/claudecode-plugings/ctm</span>
 <span class="line dim"># 或正式安装：在 Claude Code 里执行 /plugin，选择该目录</span>
     </div>
