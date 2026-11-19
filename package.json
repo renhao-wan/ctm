@@ -3,6 +3,18 @@
   "version": "0.3.0",
   "description": "Claude Terminal Multiplexer — 用 ConPTY 托管 Claude Code 交互式会话，让多个会话互通、分组隔离、按需拉起",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/renhao-wan/ctm.git"
+  },
+  "homepage": "https://github.com/renhao-wan/ctm#readme",
+  "bugs": {
+    "url": "https://github.com/renhao-wan/ctm/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "bin": {
     "ctm": "src/main.mjs"
   },
