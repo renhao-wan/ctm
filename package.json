@@ -1,5 +1,5 @@
 {
-  "name": "ctm",
+  "name": "@renhao-wan/ctm",
   "version": "0.3.0",
   "description": "Claude Terminal Multiplexer — 用 ConPTY 托管 Claude Code 交互式会话，让多个会话互通、分组隔离、按需拉起",
   "type": "module",

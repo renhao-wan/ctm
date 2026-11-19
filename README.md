@@ -177,16 +177,22 @@ ctm room summary api
 ## 打包与安装
 
 ```bash
-npm pack                    # 生成 ctm-0.3.0.tgz；prepack 会先跑全部单元测试
-npm install -g ./ctm-0.3.0.tgz
+npm pack                    # 生成 renhao-wan-ctm-0.3.0.tgz；prepack 会先跑全部单元测试
+npm install -g ./renhao-wan-ctm-0.3.0.tgz
 ctm doctor
+```
+
+发布到 npm 后可以直接安装（包名带 scope，命令仍是 `ctm`）：
+
+```bash
+npm install -g @renhao-wan/ctm
 ```
 
 包内含插件清单（`.claude-plugin/`、`.mcp.json`、`commands/`）与宿主代码。作为 Claude Code 插件加载：
 
 ```bash
-claude --plugin-dir "$(npm root -g)/ctm"      # Git Bash
-claude --plugin-dir "$(npm root -g)\ctm"      # PowerShell
+claude --plugin-dir "$(npm root -g)/@renhao-wan/ctm"      # Git Bash
+claude --plugin-dir "$(npm root -g)\@renhao-wan\ctm"      # PowerShell
 ```
 
 ---
