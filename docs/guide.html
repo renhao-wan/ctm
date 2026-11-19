@@ -435,7 +435,7 @@
   </div>
 
   <div class="what">
-    <b>为什么教程里是 <code>node src/main.mjs new …</code>，不是直接敲 <code>claude</code>？</b>
+    <b>为什么教程里是 <code>ctm new …</code>，不是直接敲 <code>claude</code>？</b>
     因为普通 <code>claude</code> 的输入框只连着你的键盘，别的程序写不进去。
     要让 A 的话出现在 B 的输入框，B 的 claude 必须由一个“拿着它输入输出”的进程启动——
     这个进程就是 ctm。<br>
@@ -449,11 +449,13 @@
     <div class="qstep">
       <div class="qnum">0</div>
       <div class="qbody">
-        <b>先确认环境</b>
-        <pre><code>cd D:/projects/claudecode-plugings/ctm
-npm install
-node src/main.mjs doctor</code></pre>
+        <b>安装</b>
+        <pre><code>npm install -g @renhao-wan/ctm
+ctm doctor</code></pre>
         <p>最后一行是 <code>结论：通过</code> 才继续。不是的话按提示修。</p>
+        <p>本页下面所有 <code>ctm</code> 都指这条命令。
+        如果你是从源码目录跑的，把 <code>ctm</code> 换成 <code>node src/main.mjs</code>，
+        安装换成 <code>npm install</code> 即可，参数完全一样。</p>
       </div>
     </div>
 
@@ -461,9 +463,9 @@ node src/main.mjs doctor</code></pre>
       <div class="qnum">1</div>
       <div class="qbody">
         <b>用 ctm 启动第一个 claude（终端 1）</b>
-        <pre><code>node src/main.mjs new web --cwd D:/projects/web --group dev</code></pre>
+        <pre><code>ctm new web --cwd D:/projects/web --group dev</code></pre>
         <ul class="explain">
-          <li><code>node src/main.mjs</code><span>用 Node 运行 ctm；全局安装后这里就是 <code>ctm</code></span></li>
+          <li><code>ctm</code><span>用 npm 全局安装的命令；从源码跑就是 <code>node src/main.mjs</code></span></li>
           <li><code>new</code><span>开一个新的托管会话</span></li>
           <li><code>web</code><span>给这个会话起的名字，之后 <code>/ctm:ask web …</code> 用它</span></li>
           <li><code>--cwd D:/projects/web</code><span>claude 在哪个目录工作，换成你自己的项目路径</span></li>
@@ -478,7 +480,7 @@ node src/main.mjs doctor</code></pre>
       <div class="qnum">2</div>
       <div class="qbody">
         <b>开第二个会话（终端 2）</b>
-        <pre><code>node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
+        <pre><code>ctm new api --cwd D:/projects/api --group dev</code></pre>
         <p>和第 1 步只有两处不同：名字是 <code>api</code>，工作目录换成另一个项目。
         <b>关键是 <code>--group dev</code> 两边要一样。</b>组名就是通讯录，
         不同组的会话互相看不见。</p>
@@ -538,26 +540,27 @@ node src/main.mjs doctor</code></pre>
     <div class="qstep">
       <div class="qnum">A</div>
       <div class="qbody">
-        <b>仓库里直接跑（上面的教程用的就是这个）</b>
-        <pre><code>node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
-        <p>不用安装任何东西，但每次都要写全路径。</p>
+        <b>仓库里直接跑（改代码时用）</b>
+        <pre><code>cd D:/projects/claudecode-plugings/ctm
+npm install
+node src/main.mjs new api --cwd D:/projects/api --group dev</code></pre>
+        <p>不用全局安装，但每次都要写全路径。</p>
       </div>
     </div>
     <div class="qstep">
       <div class="qnum">B</div>
       <div class="qbody">
-        <b>全局安装，之后用短命令</b>
-        <pre><code>npm install -g .
+        <b>全局安装，之后用短命令（推荐）</b>
+        <pre><code>npm install -g @renhao-wan/ctm
 ctm new api --cwd D:/projects/api --group dev</code></pre>
-        <p>在 ctm 目录里执行 <code>npm install -g .</code>，参数完全一样，
-        只是把 <code>node src/main.mjs</code> 换成 <code>ctm</code>。</p>
+        <p>安装一次，之后都写 <code>ctm</code>。上面的教程用的就是这个。</p>
       </div>
     </div>
     <div class="qstep">
       <div class="qnum">C</div>
       <div class="qbody">
         <b>让 <code>claude</code> 命令自己变成托管会话</b>
-        <pre><code>npm install -g .
+        <pre><code>npm install -g @renhao-wan/ctm
 ctm install-wrap</code></pre>
         <p>然后把 <code>%USERPROFILE%\.ctm\bin</code> 放到 PATH 最前面。之后照旧敲：</p>
         <pre><code>claude</code></pre>
@@ -567,6 +570,8 @@ ctm install-wrap</code></pre>
         只有换了 Node 安装、移动了 ctm 目录或重装过 ctm 时，
         包装脚本里记录的绝对路径会失效，需要重新执行一次
         <code>ctm install-wrap</code>。</p>
+        <p><b>只支持 cmd / PowerShell</b>：Windows 上生成的是 <code>claude.cmd</code>，
+        Git Bash 不认，在 Git Bash 里请直接用 <code>ctm new</code>。</p>
       </div>
     </div>
   </div>
@@ -650,8 +655,8 @@ ctm install-wrap</code></pre>
 
   <h2>命令速查 <small>同一件事，看你站在哪一边</small></h2>
   <p class="section-lead">
-    下表里的 <code>ctm</code> 指全局安装后的命令（<code>npm install -g</code>）。
-    如果你是在仓库目录里直接跑，把 <code>ctm</code> 换成 <code>node src/main.mjs</code> 即可，
+    下表里的 <code>ctm</code> 指 <code>npm install -g @renhao-wan/ctm</code> 之后的命令。
+    如果你是在源码目录里直接跑，把 <code>ctm</code> 换成 <code>node src/main.mjs</code> 即可，
     参数完全一样。
   </p>
   <table>
@@ -773,13 +778,13 @@ ctm install-wrap</code></pre>
       <span class="term-title">安装与加载</span>
     </div>
     <div class="term-body">
-<span class="line cmd">$ cd D:/projects/claudecode-plugings/ctm</span>
-<span class="line cmd">$ npm install</span>
-<span class="line cmd">$ node src/main.mjs doctor        # 环境自检，最后一行应为“结论：通过”</span>
+<span class="line cmd">$ npm install -g @renhao-wan/ctm</span>
+<span class="line cmd">$ ctm doctor                    # 环境自检，最后一行应为“结论：通过”</span>
 <span class="line dim"># ctm new 启动的会话会自动加载 ctm 插件，不需要额外参数</span>
-<span class="line dim"># 普通 claude 想发消息时，才需要手动加载：</span>
-<span class="line cmd">$ claude --plugin-dir D:/projects/claudecode-plugings/ctm</span>
-<span class="line dim"># 或正式安装：在 Claude Code 里执行 /plugin，选择该目录</span>
+<span class="line dim"># 想用源码跑，把 ctm 换成 node src/main.mjs，先 npm install</span>
+<span class="line dim"># 普通的、没用 ctm 启动的 claude 会话想发消息时，才需要手动加载：</span>
+<span class="line cmd">$ claude --plugin-dir "$(npm root -g)/@renhao-wan/ctm"</span>
+<span class="line dim"># 或正式安装：在 Claude Code 里执行 /plugin，选择已安装的 ctm 目录</span>
     </div>
   </div>
 
@@ -828,7 +833,7 @@ ctm install-wrap</code></pre>
         {
           lines: [
             { t: '# 终端 1 —— 全新窗口', c: 'dim' },
-            { t: '$ node src/main.mjs new web --cwd D:/projects/web', c: 'cmd' },
+            { t: '$ ctm new web --cwd D:/projects/web', c: 'cmd' },
           ],
           b: 'offline',
           views: {
@@ -980,7 +985,7 @@ ctm install-wrap</code></pre>
         {
           lines: [
             { t: '# 一个全新的终端窗口自动弹出', c: 'dim' },
-            { t: '$ node .../ctm/src/main.mjs new web --cwd D:/projects/web', c: 'cmd' },
+            { t: '$ ctm new web --cwd D:/projects/web     # 由 ctm 自动执行', c: 'cmd' },
             { t: '[ctm] web: starting', c: 'warn' },
           ],
           b: 'starting',
