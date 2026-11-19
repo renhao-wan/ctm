@@ -104,8 +104,13 @@ export function isMcpPrompt(t) {
  */
 export function isPermissionPrompt(t) {
   const tail = t.slice(-3000);
+  // 文案本身会出现在助手的回答里（例如引用这句提示），只凭文案会把
+  // 正常会话误判为等待确认。真正的提示一定带可选中的操作菜单。
+  const hasCursor = ['❯1.', '❯2.', '❯3.', '❯4.'].some((m) => tail.includes(m));
+  const hasCancel = tail.includes('esctocancel') || tail.includes('tabtoamend');
+  if (!hasCursor && !hasCancel) return false;
   if (PERMISSION_MARKERS.some((m) => tail.includes(m))) return true;
-  return tail.includes('doyouwantto') && tail.includes('1.yes') && tail.includes('esctocancel');
+  return tail.includes('doyouwantto') && hasCursor && hasCancel;
 }
 
 /**

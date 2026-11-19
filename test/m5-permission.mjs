@@ -10,6 +10,8 @@ import { Session } from '../src/session.mjs';
 import { readMeta } from '../src/registry.mjs';
 
 const CTM_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ctm-perm-'));
+// 注册表与收件箱走 CTM_HOME；不设置会写进真实的 ~/.ctm
+process.env.CTM_HOME = CTM_DIR;
 const CWD = fs.mkdtempSync(path.join(os.tmpdir(), 'ctm-perm-cwd-'));
 const NAME = 'perm';
 const TARGET = path.join(CWD, 'permission-check.txt');

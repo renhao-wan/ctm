@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
 const CTM_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'ctm-mcp-'));
@@ -13,7 +13,7 @@ process.env.CTM_HOME = CTM_HOME;
 
 const { writeMeta } = await import('../src/registry.mjs');
 const { enqueue, readInbox } = await import('../src/inbox.mjs');
-const { createRoom } = await import('../src/rooms.mjs');
+const { createRoom, readRoom } = await import('../src/rooms.mjs');
 
 const RECORD = path.join(WORK, 'argv.json');
 const FAKE_ENTRY = path.join(WORK, 'fake-entry.mjs');
@@ -32,6 +32,7 @@ writeMeta('lazy', {
   entry: FAKE_ENTRY,
   settleMs: 2000,
   groups: ['frontend'],
+  claudeArgs: ['--resume', 'abc123'],
   status: 'offline',
 });
 writeMeta('busy', { name: 'busy', pid: process.pid, cwd: WORK, groups: ['frontend'], status: 'idle' });
@@ -90,6 +91,43 @@ async function call(name, args) {
   return { isError: !!r?.isError, text, parsed, extra: chunks.slice(1) };
 }
 
+/** 以人（没有 CTM_SESSION_NAME）的身份调用一次，使用独立的 MCP 进程。 */
+function callAsHuman(name, args) {
+  const input =
+    [
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2024-11-05' },
+      }),
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } }),
+    ].join('\n') + '\n';
+  const env = { ...process.env, CTM_HOME, CTM_LAUNCH_MODE: 'background' };
+  delete env.CTM_SESSION_NAME;
+  const out = execFileSync(process.execPath, [MCP], {
+    cwd: path.dirname(MCP),
+    env,
+    input,
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  const msg = out
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+    .find((m) => m.id === 2);
+  const r = msg.result;
+  const text = (r?.content || []).map((c) => c.text).filter((t) => t != null)[0] ?? '';
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // 非 JSON 结果
+  }
+  return { isError: !!r?.isError, text, parsed };
+}
+
 let pass = 0;
 let fail = 0;
 async function check(name, fn) {
@@ -132,8 +170,15 @@ await check('ctm_list 只显示同组会话', async () => {
   assert.equal(lazy.未读, 2);
 });
 
-await check('ctm_list all=true 显示全部会话', async () => {
-  const { parsed } = await call('ctm_list', { all: true });
+await check('ctm_list all=true 拒绝托管会话调用', async () => {
+  const { isError, text } = await call('ctm_list', { all: true });
+  assert.equal(isError, true);
+  assert.match(text, /托管会话内不能使用 all=true/);
+});
+
+await check('ctm_list all=true 允许人调用', async () => {
+  const { isError, parsed } = callAsHuman('ctm_list', { all: true });
+  assert.equal(isError, false);
   const names = parsed.map((s) => s.名称).sort();
   assert.deepEqual(names, ['busy', 'lazy', 'orphan', 'outsider', 'sender-a']);
   const orphan = parsed.find((s) => s.名称 === 'orphan');
@@ -177,7 +222,19 @@ await check('拉起使用 meta 里记录的入口与参数', async () => {
   while (Date.now() < deadline && !fs.existsSync(RECORD)) await new Promise((r) => setTimeout(r, 100));
   assert.ok(fs.existsSync(RECORD), '假入口未被执行');
   const argv = JSON.parse(fs.readFileSync(RECORD, 'utf8'));
-  assert.deepEqual(argv, ['new', 'lazy', '--cwd', WORK, '--settle', '2000']);
+  assert.deepEqual(argv, [
+    'new',
+    'lazy',
+    '--cwd',
+    WORK,
+    '--settle',
+    '2000',
+    '--group',
+    'frontend',
+    '--',
+    '--resume',
+    'abc123',
+  ]);
 });
 
 await check('消息发送方身份取 CTM_SESSION_NAME', async () => {
@@ -298,10 +355,37 @@ await check('ctm_room 拒绝创建其他组的频道', async () => {
   assert.match(text, /不能创建其他组的频道/);
 });
 
+await check('ctm_room create 不能改写其他组已有频道', async () => {
+  const before = readRoom('back-room');
+  const { isError, text } = await call('ctm_room', {
+    action: 'create',
+    room: 'back-room',
+    topic: '被篡改的议题',
+  });
+  assert.equal(isError, true);
+  assert.match(text, /不存在或不在当前可见组内/);
+  assert.equal(readRoom('back-room').topic, before.topic);
+});
+
 await check('ctm_room summary 生成文件', async () => {
   const { parsed } = await call('ctm_room', { action: 'summary', room: 'design' });
   assert.equal(parsed.ok, true);
   assert.ok(fs.existsSync(parsed.file));
+});
+
+await check('ctm_room start 无组频道只投无组会话', async () => {
+  createRoom({ name: 'solo', topic: '独立讨论', group: '' });
+  const { isError, parsed } = callAsHuman('ctm_room', {
+    action: 'start',
+    room: 'solo',
+    text: '第一轮：独立议题',
+  });
+  assert.equal(isError, false);
+  assert.ok(parsed.sent.includes('orphan'));
+  assert.ok(!parsed.sent.includes('busy'));
+  assert.ok(!parsed.sent.includes('outsider'));
+  assert.ok(!parsed.sent.includes('lazy'));
+  assert.ok(!parsed.sent.includes('sender-a'));
 });
 
 await check('ctm_room list 只显示同组频道', async () => {

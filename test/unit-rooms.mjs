@@ -39,6 +39,11 @@ check('频道名清洗为安全文件名', () => {
   assert.equal(normalizeRoomName(' API/设计 '), 'API-设计');
   assert.equal(normalizeRoomName('../etc'), 'etc');
   assert.throws(() => normalizeRoomName('   '), /不能为空/);
+  assert.throws(() => normalizeRoomName('x'.repeat(65)), /过长/);
+  // Windows 保留名无法作为目录名，必须提前挡住
+  assert.throws(() => normalizeRoomName('CON'), /保留名/);
+  assert.throws(() => normalizeRoomName('lpt1'), /保留名/);
+  assert.equal(normalizeRoomName('console'), 'console');
 });
 
 check('创建频道写入 meta', () => {

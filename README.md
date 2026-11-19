@@ -20,7 +20,7 @@ claude A（已安装插件）── /ctm:ask ──────┘        ← �
 
 - **插件**提供 `/ctm:list`、`/ctm:ask`、`/ctm:tell`、`/ctm:start`，通过内置 MCP server 访问收件箱
 - **宿主**持有目标会话的 PTY，在目标空闲时把消息写成一条用户输入
-- **按需启动**：目标会话离线时，发送方先入队，再用目标 meta.json 里记录的 `cwd` / `node` / 入口路径在新终端窗口把它拉起来；宿主启动后自动补投收件箱里的消息
+- **按需启动**：目标会话离线时，发送方先入队，再用目标 meta.json 里记录的 `cwd` / `node` / 入口路径、分组和启动参数（含 `--resume`）在新终端窗口把它拉起来；宿主启动后自动补投收件箱里的消息
 
 **硬约束**：需要接收消息的会话必须至少被 `ctm new` 启动过一次，之后可以关闭窗口——注册信息（`meta.json`）会保留，其他会话仍能把它重新拉起。普通 `claude` 会话没有输入通道，插件无法给它送信。发送方可以是任意安装了本插件的会话。
 
@@ -93,7 +93,7 @@ ctm new d --group backend
 ctm new e --group backend
 ```
 
-- `/ctm:list` 只显示同组会话（`ctm_list` 带 `all: true` 可临时查看全部，用于排查）
+- `/ctm:list` 只显示同组会话（`ctm_list` 的 `all: true` 仅限没有会话身份的调用方，即 CLI 或未包装的普通 claude，用于排查；托管会话内会被拒绝）
 - `/ctm:ask`、`/ctm:tell`、`/ctm:start` 对跨组目标统一返回「不存在或不在当前可见组内」
 - 一个会话可以属于多个组，交集即桥接：`ctm new b --group frontend --group shared`
 - **没有组的会话是独立单组**，只看得见自己
@@ -288,15 +288,15 @@ D:\projects\claudecode-plugings\ccgui-plugin-cli-install-audit\
 - 已启动的普通 `claude` 会话无法被接管（`AttachConsole` 返回拒绝访问）；只能新开托管会话。
 - 用户输入残留内容超过 2 秒未变化时，宿主无法观测输入框状态，仍可能污染。
 - 工具权限确认会阻塞轮次：`Write` 等操作需要用户确认时，会话不会发 `Stop`。宿主会把这种屏幕标记为 `needs-input`、暂停投递，并在 `ctm list` / `/ctm:list` 中显示；**但不会代替用户确认**，需要你到该窗口按键。
-- `needs-input` 的识别依赖屏幕尾部文案：已知的 `Do you want to proceed?`、`Do you want to allow this connection?`，以及通用组合 `Do you want to …?` + `1. Yes` + `Esc to cancel`（实测 2.1.319 写文件提示是 `Do you want to create <file>?`）。Claude Code 改版后若文案变化，需要同步 `src/tui.mjs` 的标记。
+- `needs-input` 的识别依赖屏幕尾部文案：已知的 `Do you want to proceed?`、`Do you want to allow this connection?`，以及通用组合 `Do you want to …?` + `1. Yes` + `Esc to cancel`（实测 2.1.319 写文件提示是 `Do you want to create <file>?`）。只有文案、没有编号选项或取消提示时不算权限确认，避免助手在回答里引用这句提示造成误判。Claude Code 改版后若文案变化，需要同步 `src/tui.mjs` 的标记。
 - 讨论频道不自动多轮：`start` 只投递议题，不等待成员发言，也不会自动发起下一轮。轮次由人显式推进。
 - 讨论频道的组隔离与消息一致，但它不是安全边界：同一用户仍可直接读写 `~/.ctm/rooms/`。
-- 信任提示的自动选择依赖当前布局（`❯` 紧邻选项文本）。布局变化时不猜按键，会话会停在启动阶段直到超时，需要用户手动处理。
+- 信任提示的自动选择依赖当前布局（`❯` 紧邻选项文本）。布局变化时不猜按键，会话转为 `needs-input` 并暂停投递，需要用户在该窗口手动处理。
 - 项目目录自带 `.mcp.json` 时，claude 启动会要求确认是否加载其中的 MCP server。MCP server 可以执行任意代码，宿主**不代替用户授权**，会话停在 `needs-input`，需要用户按键确认一次。
 - 首条消息：2.1.319 下 5 会话并发启动实测 3 轮 15/15 送达；单会话连续 5 轮投递 5/5。提交确认同时看屏幕与 hook 事件，超时后会补发一次回车。
 - 按需启动依赖 `meta.json`：`ctm kill` 会删除它，被 kill 掉的会话无法再由其他会话拉起。要保留"随时可唤醒"能力请直接关闭窗口（Ctrl+C），不要用 `ctm kill`。
 - 按需启动默认新开终端窗口，优先用 `wt.exe`，缺失时回退 `cmd.exe /c start`。无桌面会话（纯后台）环境下只能用 `CTM_LAUNCH_MODE=background`，此时没有可视窗口。
-- 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。
+- 拉起后的会话会重新走一遍启动流程（信任提示、项目 `.mcp.json` 确认等），因此从发消息到实际送达有几十秒延迟，期间消息安全地留在收件箱。拉起会从 `meta.json` 恢复分组与 `claudeArgs`（包括 `--resume`），不会把原来的会话变成空对话。
 - 15 秒的 `launch.lock` 用来防止多个发送方同时拉起同一个会话；在此期间重复请求会返回"启动进行中"。
 - 分组是协作边界，不是安全边界：同一用户仍可直接读改 `~/.ctm/` 下的文件。它防止的是会话之间的意外串扰。
 - `ctm install-wrap` 只生成脚本，不修改 PATH；需要手动把 `~/.ctm/bin` 放到 PATH 前面。

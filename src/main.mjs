@@ -6,13 +6,22 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { Session, detectGitDirs } from './session.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
-import { ctmHome, listSessions, readMeta, isAlive, removeMeta, writeMeta } from './registry.mjs';
+import {
+  ctmHome,
+  listSessions,
+  readMeta,
+  isAlive,
+  isValidSessionName,
+  removeMeta,
+  writeMeta,
+} from './registry.mjs';
 import { launchSession } from './launch.mjs';
 import { pendingMessages, readDelivered } from './inbox.mjs';
 import {
   appendSay,
   createRoom,
   listRooms,
+  inRoomAudience,
   readMessages,
   readRoom,
   roomVisible,
@@ -20,6 +29,7 @@ import {
   writeSummary,
 } from './rooms.mjs';
 import {
+  cleanSessionName,
   describeGroups,
   resolveGroups,
   sessionNameFor,
@@ -32,7 +42,8 @@ function usage() {
 用法：
   ctm new [name] [--cwd <path>] [--group <g>] [--settle <ms>] [-- <claude 参数>]
                                                   启动托管会话
-  ctm resume [sessionId] [--group <g>]            在新托管会话中恢复对话
+  ctm resume [sessionId] [--group <g>] [--settle <ms>] [-- <claude 参数>]
+                                                  在新托管会话中恢复对话
   ctm start <name>                                重新拉起已存在但离线的会话
   ctm list                                        列出托管会话
   ctm kill <name>                                 结束会话
@@ -51,12 +62,35 @@ function usage() {
 
 function parseArgs(argv) {
   const args = { _: [] };
+  const valueOf = (i, flag) => {
+    if (argv[i] === undefined || argv[i] === '') {
+      console.error(`[ctm] ${flag} 需要一个值`);
+      process.exit(1);
+    }
+    return argv[i];
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--cwd') args.cwd = argv[++i];
-    else if (a === '--settle') args.settle = Number(argv[++i]);
-    else if (a === '--group') (args.groups ||= []).push(argv[++i]);
-    else if (a.startsWith('--group=')) (args.groups ||= []).push(a.slice('--group='.length));
+    if (a === '--cwd') args.cwd = valueOf(++i, '--cwd');
+    else if (a === '--settle') {
+      const raw = valueOf(++i, '--settle');
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) {
+        console.error(`[ctm] --settle 需要一个非负毫秒数：${raw}`);
+        process.exit(1);
+      }
+      args.settle = n;
+    } else if (a === '--group') {
+      const g = valueOf(++i, '--group');
+      (args.groups ||= []).push(g);
+    } else if (a.startsWith('--group=')) {
+      const g = a.slice('--group='.length);
+      if (!g) {
+        console.error('[ctm] --group 需要一个值');
+        process.exit(1);
+      }
+      (args.groups ||= []).push(g);
+    } else if (a === '--no-group') args.noGroup = true;
     else if (a === '--debug') args.debug = true;
     else if (a === '--') {
       // -- 之后原样交给 claude：ctm new web -- --resume <id>
@@ -108,7 +142,15 @@ function startHost({ name, cwd, groups = [], settleMs = 3000, claudeArgs = [], d
 
 function cmdNew(args) {
   const name = args._[1] || `c${Date.now().toString(36)}`;
-  if (readMeta(name) && isAlive(readMeta(name).pid)) {
+  if (!isValidSessionName(name)) {
+    console.error(
+      `[ctm] 会话名不合法：${name}\n` +
+        '  只能包含字母、数字、中文、点、下划线和短横线，长度 1-64，不能以点结尾。',
+    );
+    process.exit(1);
+  }
+  const existing = readMeta(name);
+  if (existing && isAlive(existing.pid)) {
     console.error(`[ctm] 会话名已存在且仍在运行：${name}`);
     process.exit(1);
   }
@@ -117,7 +159,9 @@ function cmdNew(args) {
     console.error(`[ctm] 工作目录不存在：${cwd}`);
     process.exit(1);
   }
-  const groups = resolveGroups({ cliGroups: args.groups, cwd });
+  // --no-group 是拉起时用来精确恢复「无组」的内部参数：
+  // 否则项目里的 .ctm.json 会在重新拉起时给会话加上组。
+  const groups = args.noGroup ? [] : resolveGroups({ cliGroups: args.groups, cwd });
   startHost({
     name,
     cwd,
@@ -132,10 +176,15 @@ function cmdNew(args) {
 function cmdResume(args) {
   const sessionId = args._[1];
   const cwd = path.resolve(process.cwd());
-  const base = sessionId ? `resume-${sessionId.slice(0, 8)}` : `resume-${Date.now().toString(36)}`;
+  const base = cleanSessionName(
+    sessionId ? `resume-${sessionId.slice(0, 8)}` : `resume-${Date.now().toString(36)}`,
+  );
   const name = uniqueName(base);
   const groups = resolveGroups({ cliGroups: args.groups, cwd });
-  const claudeArgs = sessionId ? ['--resume', sessionId] : ['--resume'];
+  const claudeArgs = [
+    ...(sessionId ? ['--resume', sessionId] : ['--resume']),
+    ...(args.claudeArgs || []),
+  ];
   startHost({
     name,
     cwd,
@@ -165,6 +214,7 @@ function execClaude(argv) {
   const env = { ...process.env };
   // 透传出去的是一个新的 claude 进程，不应继承父会话的身份
   delete env.CTM_SESSION_NAME;
+  delete env.CLAUDE_CODE_CHILD_SESSION;
   const child = spawn(r.bin, [...(r.prefix || []), ...argv], { stdio: 'inherit', env });
   child.on('error', (e) => {
     console.error(`[ctm] 无法启动 claude：${e.message}`);
@@ -191,7 +241,16 @@ function cmdWrap() {
       }
       cliGroups.push(raw[++i]);
     } else if (a.startsWith('--group=')) {
-      cliGroups.push(a.slice('--group='.length));
+      const g = a.slice('--group='.length);
+      if (!g) {
+        console.error('[ctm] --group 需要一个值');
+        process.exit(1);
+      }
+      cliGroups.push(g);
+    } else if (a === '--') {
+      // -- 之后全部是 claude 自己的参数（可能包含 --group）
+      claudeArgs.push(a, ...raw.slice(i + 1));
+      break;
     } else {
       claudeArgs.push(a);
     }
@@ -344,7 +403,7 @@ function cmdRoom(args) {
 
   if (action === 'start') {
     const targets = listSessions()
-      .filter((m) => !room.group || (Array.isArray(m.groups) && m.groups.includes(room.group)))
+      .filter((m) => inRoomAudience(m, room))
       .map((m) => m.name);
     console.log(
       JSON.stringify(
@@ -365,7 +424,8 @@ function cmdRoom(args) {
   process.exit(1);
 }
 
-function cmdKill(args) {  const name = args._[1];
+function cmdKill(args) {
+  const name = args._[1];
   if (!name) {
     console.error('用法：ctm kill <name>');
     process.exit(1);
@@ -380,14 +440,22 @@ function cmdKill(args) {  const name = args._[1];
     console.log(`[ctm] ${name} 已不在运行，记录已清理`);
     return;
   }
+  let killed = false;
   try {
     execFileSync('taskkill', ['/PID', String(meta.pid), '/T', '/F'], { stdio: 'ignore' });
+    killed = true;
   } catch {
     try {
       process.kill(meta.pid);
+      killed = true;
     } catch {
-      // 忽略
+      // 交给下面的存活检查判断
     }
+  }
+  // 杀不掉时保留 meta：否则记录消失但进程还在，之后既管不了也会被重复拉起
+  if (!killed && isAlive(meta.pid)) {
+    console.error(`[ctm] 无法结束 ${name}（PID ${meta.pid}），记录已保留`);
+    process.exit(1);
   }
   removeMeta(name);
   console.log(`[ctm] 已结束 ${name}`);
@@ -517,42 +585,49 @@ async function cmdDoctor() {
 const args = parseArgs(process.argv.slice(2));
 const cmd = args._[0];
 
-switch (cmd) {
-  case 'new':
-    cmdNew(args);
-    break;
-  case 'wrap':
-    cmdWrap();
-    break;
-  case 'install-wrap':
-    cmdInstallWrap();
-    break;
-  case 'start':
-    cmdStart(args);
-    break;
-  case 'resume':
-    cmdResume(args);
-    break;
-  case 'list':
-    cmdList();
-    break;
-  case 'room':
-    cmdRoom(args);
-    break;
-  case 'kill':
-    cmdKill(args);
-    break;
-  case 'doctor':
-    await cmdDoctor();
-    break;
-  case undefined:
-  case 'help':
-  case '--help':
-  case '-h':
-    usage();
-    break;
-  default:
-    console.error(`未知命令：${cmd}`);
-    usage();
-    process.exit(1);
+// 统一兜底：CLI 层面的可预期错误（频道名过长、锁文件损坏等）
+// 只打印一行提示，不把内部栈丢给用户。
+try {
+  switch (cmd) {
+    case 'new':
+      cmdNew(args);
+      break;
+    case 'wrap':
+      cmdWrap();
+      break;
+    case 'install-wrap':
+      cmdInstallWrap();
+      break;
+    case 'start':
+      cmdStart(args);
+      break;
+    case 'resume':
+      cmdResume(args);
+      break;
+    case 'list':
+      cmdList();
+      break;
+    case 'room':
+      cmdRoom(args);
+      break;
+    case 'kill':
+      cmdKill(args);
+      break;
+    case 'doctor':
+      await cmdDoctor();
+      break;
+    case undefined:
+    case 'help':
+    case '--help':
+    case '-h':
+      usage();
+      break;
+    default:
+      console.error(`未知命令：${cmd}`);
+      usage();
+      process.exit(1);
+  }
+} catch (e) {
+  console.error(`[ctm] ${e.message}`);
+  process.exit(1);
 }

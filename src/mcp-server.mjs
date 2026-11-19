@@ -19,6 +19,7 @@ import { visibleTo, describeGroups } from './groups.mjs';
 import {
   appendSay,
   createRoom,
+  inRoomAudience,
   listRooms,
   readMessages,
   readRoom,
@@ -73,7 +74,10 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        all: { type: 'boolean', description: '显示全部会话，忽略分组可见性（仅用于排查）' },
+        all: {
+          type: 'boolean',
+          description: '显示全部会话，忽略分组可见性（仅在没有会话身份的调用方可用，用于排查）',
+        },
       },
       additionalProperties: false,
     },
@@ -193,6 +197,11 @@ function handleCall(id, name, args) {
   try {
     if (name === 'ctm_list') {
       const me = meMeta();
+      // all 会绕过组隔离，只允许人（没有会话身份）使用；
+      // 否则托管会话里的 AI 可以借此看到并探测其他组。
+      if (args.all === true && me.name) {
+        return toolResult(id, '托管会话内不能使用 all=true，请按组查看可见会话', true);
+      }
       const all = args.all === true;
       const list = listSessions()
         .filter((m) => all || visibleTo(me, m))
@@ -302,6 +311,11 @@ function handleCall(id, name, args) {
         if (me.name && group && !(me.groups || []).includes(group)) {
           return toolResult(id, `不能创建其他组的频道：${group}`, true);
         }
+        // 同名频道已存在时必须先确认可见，否则 create 会变成改写别人频道的入口
+        const existing = readRoom(args.room);
+        if (existing && !roomVisible(me, existing)) {
+          return toolResult(id, `频道不存在或不在当前可见组内：${args.room}`, true);
+        }
         const room = createRoom({
           name: args.room,
           topic: args.topic || '',
@@ -337,7 +351,7 @@ function handleCall(id, name, args) {
         const targets = listSessions()
           .filter((m) => m.name !== me.name)
           .filter((m) => visibleTo(me, m))
-          .filter((m) => !room.group || (Array.isArray(m.groups) && m.groups.includes(room.group)))
+          .filter((m) => inRoomAudience(m, room))
           .map((m) => m.name);
         const r = startRound({
           room: room.name,
@@ -402,6 +416,8 @@ rl.on('line', (line) => {
   if (method === 'tools/list') return ok(id, { tools: TOOLS });
   if (method === 'tools/call') return handleCall(id, params?.name, params?.arguments || {});
 
+  // JSON-RPC notification 没有 id，规范要求不回复
+  if (id === undefined) return;
   fail(id, -32601, `未实现的方法：${method}`);
 });
 

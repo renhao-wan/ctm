@@ -111,10 +111,22 @@ function resolveShim(shimPath, ext) {
  */
 export function resolveClaudeBin(env = process.env) {
   if (env.CTM_CLAUDE_BIN) {
-    if (!isFile(env.CTM_CLAUDE_BIN)) {
+    // 相对路径按当前目录解析：isFile 与 spawn 对相对路径的基准必须一致
+    const bin = path.resolve(env.CTM_CLAUDE_BIN);
+    if (!isFile(bin)) {
       throw new Error(`CTM_CLAUDE_BIN 指向的文件不存在：${env.CTM_CLAUDE_BIN}`);
     }
-    return { bin: env.CTM_CLAUDE_BIN, prefix: [], via: 'CTM_CLAUDE_BIN' };
+    // node-pty 不能直接执行 .cmd/.bat；若是 npm 生成的 shim 就解析出真实入口
+    if (/\.(cmd|bat)$/i.test(bin)) {
+      const target = fromCmdShim(bin);
+      if (!target) {
+        throw new Error(
+          `CTM_CLAUDE_BIN 指向的 shim 无法解析（不能是 ctm 自己的包装脚本）：${env.CTM_CLAUDE_BIN}`,
+        );
+      }
+      return { ...target, via: 'CTM_CLAUDE_BIN（解析 shim）' };
+    }
+    return { bin, prefix: [], via: 'CTM_CLAUDE_BIN' };
   }
 
   const dirs = (env.PATH || env.Path || '').split(path.delimiter).filter(Boolean);

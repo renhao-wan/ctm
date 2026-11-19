@@ -158,14 +158,19 @@ Do you want to proceed?
 check('运行期权限提示被识别', () => {
   assert.equal(isPermissionPrompt(norm(SCREEN_PERMISSION)), true);
   assert.equal(isPermissionPrompt(norm(SCREEN_PERMISSION_BASH)), true);
-  assert.equal(isPermissionPrompt(norm('Do you want to allow this connection?')), true);
+  assert.equal(
+    isPermissionPrompt(
+      norm('Do you want to allow this connection?\n❯ 1. Yes\n  2. No\nEsc to cancel'),
+    ),
+    true,
+  );
 });
 
 check('普通回答不会被误判为权限提示', () => {
   assert.equal(isPermissionPrompt(norm('● 已完成修改，运行 npm test 全部通过。')), false);
   assert.equal(isPermissionPrompt(norm('❯ 在这里正常使用 claude 即可')), false);
   // 只有 "Do you want to..." 但没有选项菜单，不当作权限提示
-  assert.equal(isPermissionPrompt(norm('回答里引用了 Do you want to proceed? 这句话')), true);
+  assert.equal(isPermissionPrompt(norm('回答里引用了 Do you want to proceed? 这句话')), false);
 });
 
 check('确认后的历史文本不会永久命中', () => {

@@ -8,6 +8,8 @@ import path from 'node:path';
 import { Session } from '../src/session.mjs';
 
 const CTM_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ctm-smoke-'));
+// 注册表与收件箱走 CTM_HOME；不设置会写进真实的 ~/.ctm
+process.env.CTM_HOME = CTM_DIR;
 // 不要用本仓库作为 cwd：仓库自带 .mcp.json，会触发 MCP server 确认，需要用户按键。
 const CWD = process.env.M1_CWD || path.join(os.tmpdir(), 'ctm-smoke-cwd');
 fs.mkdirSync(CWD, { recursive: true });

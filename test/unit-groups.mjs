@@ -10,6 +10,7 @@ const {
   visibleTo,
   describeGroups,
   resolveGroups,
+  cleanSessionName,
   sessionNameFor,
   shouldPassthrough,
 } = await import('../src/groups.mjs');
@@ -104,6 +105,14 @@ check('会话名取目录名并清理非法字符', () => {
   assert.equal(sessionNameFor('D:/projects/my app (v2)'), 'my-app-v2');
   assert.equal(sessionNameFor('D:/projects/中文目录'), '中文目录');
   assert.equal(sessionNameFor('D:/'), 'session');
+});
+
+check('任意名字都能清洗成合法会话名', () => {
+  assert.equal(cleanSessionName('resume-../x'), 'resume-..-x');
+  assert.equal(cleanSessionName('..'), 'session');
+  assert.equal(cleanSessionName('...x'), 'x');
+  assert.equal(cleanSessionName('a'.repeat(100)).length, 64);
+  assert.match(cleanSessionName('a/b\\c:d'), /^[^/\\:]+$/);
 });
 
 check('交互式启动不 passthrough', () => {

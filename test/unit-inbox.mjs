@@ -16,7 +16,7 @@ const {
   formatMessage,
   UnknownSessionError,
 } = await import('../src/inbox.mjs');
-const { writeMeta, sessionDir } = await import('../src/registry.mjs');
+const { writeMeta, sessionDir, isValidSessionName } = await import('../src/registry.mjs');
 
 let pass = 0;
 let fail = 0;
@@ -33,6 +33,16 @@ function check(name, fn) {
 
 // 用当前进程 PID 扮演一个存活的托管会话
 writeMeta('b', { name: 'b', pid: process.pid, cwd: 'D:/projects/api', status: 'idle' });
+
+check('会话名挡住路径穿越与非法文件名', () => {
+  for (const bad of ['../x', '..', '.', 'a/b', 'a\\b', 'C:evil', 'con', 'x.', '', 'x'.repeat(65)]) {
+    assert.equal(isValidSessionName(bad), false, `应拒绝：${bad}`);
+  }
+  assert.throws(() => sessionDir('../x'), /会话名不合法/);
+  assert.throws(() => writeMeta('../x', { name: '../x' }), /会话名不合法/);
+  assert.equal(isValidSessionName('web-1'), true);
+  assert.equal(isValidSessionName('前端'), true);
+});
 
 check('向不存在的会话投递会报错', () => {
   assert.throws(() => enqueue({ to: 'nobody', from: 'a', text: 'hi' }), UnknownSessionError);
@@ -106,7 +116,7 @@ check('超过 8KB 的消息被截断并保留原文', () => {
   const big = 'x'.repeat(9000);
   const msg = enqueue({ to: 'b', from: 'a', text: big });
   assert.ok(msg.text.includes('已截断'));
-  assert.ok(Buffer.byteLength(msg.text, 'utf8') < Buffer.byteLength(big, 'utf8'));
+  assert.ok(Buffer.byteLength(msg.text, 'utf8') <= 8192);
   assert.ok(msg.truncatedFrom && fs.existsSync(msg.truncatedFrom));
   assert.equal(fs.readFileSync(msg.truncatedFrom, 'utf8'), big);
 });

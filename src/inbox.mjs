@@ -42,12 +42,14 @@ export function enqueue({ to, from, fromCwd, text, kind = 'tell' }) {
     fs.mkdirSync(dir, { recursive: true });
     truncatedFrom = path.join(dir, `${id}.txt`);
     fs.writeFileSync(truncatedFrom, input);
-    // 按字节截断，去掉被切断的多字节字符留下的替换符
+    // 附加说明也算在 8192 字节预算内；按字节截断，去掉被切断的多字节字符
+    const suffix = `\n…（消息超过 ${MAX_TEXT_BYTES} 字节，已截断；原文见 ${truncatedFrom}）`;
+    const budget = Math.max(0, MAX_TEXT_BYTES - Buffer.byteLength(suffix, 'utf8'));
     const cut = Buffer.from(input, 'utf8')
-      .subarray(0, MAX_TEXT_BYTES)
+      .subarray(0, budget)
       .toString('utf8')
       .replace(/�+$/, '');
-    content = `${cut}\n…（消息超过 ${MAX_TEXT_BYTES} 字节，已截断；原文见 ${truncatedFrom}）`;
+    content = cut + suffix;
   }
 
   const msg = {
@@ -110,7 +112,7 @@ export function formatMessage(msg) {
   const who = msg.from === '用户' ? '用户' : `会话 ${msg.from}`;
   // 短 id 让模型能引用某条消息（/ctm:reply <id> <text>）
   const ref = msg.id ? ` · #${String(msg.id).slice(0, 8)}` : '';
-  return `[来自${who}${where}${ref}] ${msg.text}`;
+  return `[来自${who}${where}${ref}] ${String(msg.text ?? '')}`;
 }
 
 /** 按完整 id 或短 id 前缀在当前会话的收件箱里找消息。 */

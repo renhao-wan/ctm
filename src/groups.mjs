@@ -9,6 +9,7 @@
 // “没有身份”和“有身份但没有组”是两件事，不要混：前者是人在用，后者是 AI 会话。
 import fs from 'node:fs';
 import path from 'node:path';
+import { isValidSessionName } from './registry.mjs';
 
 export function normalizeGroups(input) {
   const out = [];
@@ -75,11 +76,20 @@ export function resolveGroups({ cliGroups, cwd, env = process.env } = {}) {
 
 const RESERVED_CHARS = /[^\p{L}\p{N}._-]+/gu;
 
+/** 把任意字符串清洗成合法会话名：非法字符换成 -，去掉首尾的点与横线。 */
+export function cleanSessionName(input) {
+  const clean = String(input ?? '')
+    .replace(RESERVED_CHARS, '-')
+    .replace(/^[.\-]+|[.\-]+$/g, '');
+  // 与 registry 的 64 字符上限保持一致；截断后可能又露出首尾的点/横线
+  const capped = clean.slice(0, 64).replace(/^[.\-]+|[.\-]+$/g, '');
+  return isValidSessionName(capped) ? capped : 'session';
+}
+
 /** 用目录名作为默认会话名，非法字符替换为 -。 */
 export function sessionNameFor(cwd) {
   const base = path.basename(path.resolve(cwd || '.')) || 'session';
-  const clean = base.replace(RESERVED_CHARS, '-').replace(/^-+|-+$/g, '');
-  return clean || 'session';
+  return cleanSessionName(base);
 }
 
 // 这些参数或子命令属于“非交互用法”，必须原样透传，不能套宿主。

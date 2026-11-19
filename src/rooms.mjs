@@ -12,6 +12,8 @@ import { ctmHome } from './registry.mjs';
 import { enqueue } from './inbox.mjs';
 
 const RESERVED = /[^\p{L}\p{N}._-]+/gu;
+// 与 registry 一致：这些名字在 Windows 上无法作为目录名
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
 /** 频道名只保留安全字符，避免路径穿越与跨平台文件名问题。 */
 export function normalizeRoomName(input) {
@@ -19,6 +21,8 @@ export function normalizeRoomName(input) {
   if (!s) throw new Error('频道名不能为空');
   const clean = s.replace(RESERVED, '-').replace(/^[.-]+|[.-]+$/g, '');
   if (!clean || clean === '.' || clean === '..') throw new Error(`频道名不合法：${s}`);
+  if (WINDOWS_RESERVED.test(clean)) throw new Error(`频道名不合法（Windows 保留名）：${s}`);
+  if (clean.length > 64) throw new Error(`频道名过长（最多 64 个字符）：${s}`);
   return clean;
 }
 
@@ -72,6 +76,16 @@ export function roomVisible(me, room) {
   const mine = Array.isArray(me.groups) ? me.groups : [];
   if (!room.group) return mine.length === 0;
   return mine.includes(room.group);
+}
+
+/**
+ * 会话是否属于频道受众。
+ * 无组频道只面向无组会话，不能因为 room.group === '' 就投给所有人。
+ */
+export function inRoomAudience(meta, room) {
+  const groups = Array.isArray(meta?.groups) ? meta.groups : [];
+  if (!room || !room.group) return groups.length === 0;
+  return groups.includes(room.group);
 }
 
 export function listRooms(me) {
@@ -170,7 +184,7 @@ export function writeSummary(room) {
   for (const r of rounds) {
     lines.push(`## 第 ${r} 轮`);
     for (const m of messages.filter((x) => x.round === r)) {
-      lines.push(`- **${m.from}**：${m.text.replace(/\n/g, ' ')}`);
+      lines.push(`- **${m.from}**：${String(m.text ?? '').replace(/\n/g, ' ')}`);
     }
     lines.push('');
   }

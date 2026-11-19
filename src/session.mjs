@@ -6,7 +6,7 @@ import { spawn as ptySpawn } from 'node-pty';
 import { ScreenBuffer, Bootstrap, isBusyText, isPermissionPrompt, normalize } from './tui.mjs';
 import { resolveClaudeBin, claudeVersion } from './resolve-claude.mjs';
 import { writeSettings } from './hooks.mjs';
-import { writeMeta, readMeta, removeMeta, sessionDir } from './registry.mjs';
+import { writeMeta, readMeta, sessionDir, isValidSessionName } from './registry.mjs';
 import { pendingMessages, markDelivered, readDelivered, formatMessage } from './inbox.mjs';
 import { normalizeGroups } from './groups.mjs';
 
@@ -23,7 +23,12 @@ export function detectGitDirs() {
   } catch {
     // git 不在 PATH，走常见位置
   }
-  for (const root of ['D:\\IDEAjava\\Git', 'C:\\Program Files\\Git']) {
+  for (const root of [
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Git'),
+    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Git'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git'),
+  ]) {
+    if (!root) continue;
     candidates.push(path.join(root, 'usr', 'bin'), path.join(root, 'bin'));
   }
   return [...new Set(candidates)].filter((d) => {
@@ -43,11 +48,16 @@ export class Session {
    */
   constructor(opts) {
     this.name = opts.name;
+    // 会话名会拼进 events/settings 路径，构造前先挡住 ../ 之类
+    if (!isValidSessionName(this.name)) {
+      throw new Error(`会话名不合法：${this.name}`);
+    }
     this.cwd = opts.cwd;
     this.ctmDir = opts.ctmDir;
     this.cols = opts.cols || 120;
     this.rows = opts.rows || 40;
-    this.settleMs = opts.settleMs ?? 3000;
+    const settle = Number(opts.settleMs);
+    this.settleMs = Number.isFinite(settle) && settle >= 0 ? settle : 3000;
     this.quiet = opts.quiet === true;
     this.groups = normalizeGroups(opts.groups);
     this.claudeArgs = opts.claudeArgs || [];
@@ -70,6 +80,13 @@ export class Session {
       });
 
     this.eventsFile = path.join(this.ctmDir, 'events', `${this.name}.jsonl`);
+    // 复用离线会话名时 events 文件里可能还有上一轮的事件。
+    // 从文件末尾开始读，避免陈旧 hook 被当作本次注入的确认信号。
+    try {
+      this.eventOffset = fs.statSync(this.eventsFile).size;
+    } catch {
+      this.eventOffset = 0;
+    }
     this.settingsFile = writeSettings({
       dir: path.join(this.ctmDir, 'sessions', this.name),
       name: this.name,
@@ -84,7 +101,11 @@ export class Session {
     const env = { ...process.env };
     delete env.CLAUDE_CODE_CHILD_SESSION;
     const gitDirs = detectGitDirs();
-    if (gitDirs.length) env.PATH = gitDirs.join(';') + ';' + env.PATH;
+    if (gitDirs.length) {
+      // Windows 上环境变量名通常是 Path，展开成普通对象后大小写敏感
+      const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+      env[pathKey] = gitDirs.join(path.delimiter) + path.delimiter + (env[pathKey] || '');
+    }
     env.CTM_SESSION_NAME = this.name;
 
     this.proc = ptySpawn(
@@ -131,9 +152,11 @@ export class Session {
       status: 'starting',
       groups: this.groups,
       settleMs: this.settleMs,
+      // 按需拉起要恢复启动参数，否则 --resume 之类的会话会变成空对话
+      claudeArgs: this.claudeArgs,
       // 供其他进程按需重新拉起本会话
       node: process.execPath,
-      entry: path.resolve(process.argv[1] || ''),
+      entry: process.argv[1] ? path.resolve(process.argv[1]) : '',
       startedAt: new Date().toISOString(),
     });
 
@@ -210,6 +233,10 @@ export class Session {
       this.setStatus('ready');
     } else if (action === 'needs-input') {
       this.setStatus('needs-input');
+    } else if (action === 'trust-unknown') {
+      // 信任提示的布局不认识（版本差异或渲染未完成）。宿主不能代按，
+      // 也不能一直停在 starting：交给用户在窗口里处理，并暂停投递。
+      this.setStatus('needs-input');
     } else if (action === 'settled') {
       this.setStatus('idle');
     } else if (action === 'timeout') {
@@ -232,6 +259,8 @@ export class Session {
     let text;
     try {
       const stat = fs.statSync(this.eventsFile);
+      // 文件被清空或轮转：旧偏移已失效，从头读
+      if (stat.size < this.eventOffset) this.eventOffset = 0;
       if (stat.size <= this.eventOffset) return;
       const fd = fs.openSync(this.eventsFile, 'r');
       const buf = Buffer.alloc(stat.size - this.eventOffset);
@@ -312,6 +341,8 @@ export class Session {
       await sleep(delayMs);
       this.proc.write('\r');
     } catch (e) {
+      // 已置 busy，写失败时不能把状态留在原地，否则投递永久停止
+      this.setStatus('idle');
       return { ok: false, reason: 'write-failed', error: e.message };
     }
 

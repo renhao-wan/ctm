@@ -109,6 +109,8 @@ await check('后台启动会把会话参数原样传给宿主入口', async () =
     name: 'spawned',
     pid: null,
     status: 'offline',
+    groups: ['frontend', 'shared'],
+    claudeArgs: ['--resume', 'abc123'],
     ...base,
     entry: path.join(WORK, 'record-entry.mjs'),
   });
@@ -119,7 +121,45 @@ await check('后台启动会把会话参数原样传给宿主入口', async () =
   while (Date.now() < deadline && !fs.existsSync(record)) await sleep(100);
   assert.ok(fs.existsSync(record), '宿主入口未被执行');
   const argv = JSON.parse(fs.readFileSync(record, 'utf8'));
-  assert.deepEqual(argv, ['new', 'spawned', '--cwd', WORK, '--settle', '1234']);
+  assert.deepEqual(argv, [
+    'new',
+    'spawned',
+    '--cwd',
+    WORK,
+    '--settle',
+    '1234',
+    '--group',
+    'frontend',
+    '--group',
+    'shared',
+    '--',
+    '--resume',
+    'abc123',
+  ]);
+});
+
+await check('无组会话拉起时显式保留无组', async () => {
+  const record = path.join(WORK, 'argv-nogroup.json');
+  fs.writeFileSync(
+    path.join(WORK, 'record-entry-nogroup.mjs'),
+    `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`,
+  );
+  writeMeta('nogroup', {
+    name: 'nogroup',
+    pid: null,
+    status: 'offline',
+    groups: [],
+    ...base,
+    entry: path.join(WORK, 'record-entry-nogroup.mjs'),
+  });
+  const r = launchSession('nogroup', { mode: 'background' });
+  assert.equal(r.started, true);
+
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && !fs.existsSync(record)) await sleep(100);
+  assert.ok(fs.existsSync(record), '宿主入口未被执行');
+  const argv = JSON.parse(fs.readFileSync(record, 'utf8'));
+  assert.deepEqual(argv, ['new', 'nogroup', '--cwd', WORK, '--settle', '1234', '--no-group']);
 });
 
 await check('启动后 meta 仍保留离线状态，等宿主接手', () => {
