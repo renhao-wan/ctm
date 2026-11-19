@@ -6,6 +6,7 @@ import {
   normalize,
   READY_MARKERS,
   isMcpPrompt,
+  isBypassPrompt,
   isPermissionPrompt,
   trustSelection,
   TRUST_SELECTION,
@@ -134,6 +135,26 @@ check('MCP 历史文本不会让会话永远停在 needs-input', () => {
   // 提示关闭后，旧文本仍留在累积缓冲前部；只检查屏幕末尾
   const longTail = 'x'.repeat(3000);
   assert.equal(isMcpPrompt(norm(`${SCREEN_MCP}\n${longTail}`)), false);
+});
+
+// bypassPermissions 的免责声明：实测默认选中 No，宿主不能替用户接受
+const SCREEN_BYPASS = `
+WARNING: Claude Code running in BypassPermissions mode
+In BypassPermissions mode, Claude Code will not ask for your approval before running
+potentially dangerous commands. This mode should only be used in a sandboxed container/VM.
+❯ No, exit
+  Yes, I accept
+Enter to confirm · Esc to cancel
+`;
+
+check('bypassPermissions 免责声明交给用户处理', () => {
+  assert.equal(isBypassPrompt(norm(SCREEN_BYPASS)), true);
+  const b = new Bootstrap({ settleMs: 0 });
+  assert.equal(b.step(norm(SCREEN_BYPASS)), 'needs-input');
+});
+
+check('普通屏幕不会被误判为 bypass 提示', () => {
+  assert.equal(isBypassPrompt(norm(SCREEN_319)), false);
 });
 
 // 运行期工具权限确认：2.1.319 实测的写文件提示

@@ -25,6 +25,11 @@ const FULLSCREEN_MARKERS = ['fullscreenrenderer'];
 // 项目里存在 .mcp.json 时，claude 启动会要求确认是否加载其中的 MCP server。
 // 这等于授权执行第三方代码，不能由 ctm 代替用户按回车。
 const MCP_MARKERS = ['mcpserverfoundinthisproject'];
+// 显式传 --permission-mode bypassPermissions 时 claude 会显示一份免责声明，
+// 默认选中 No。宿主不替用户接受这种全局放权，但也不该一直卡在 starting。
+const BYPASS_MARKERS = ['bypasspermissionsmode', 'yes,iaccept'];
+// 信任确认中 “No, exit / Yes, I trust this folder” 的选中态，
+// 两种模式的提示布局相同，可复用 trustSelection。
 
 // 运行期的工具权限确认。文案取自 2.1.319 二进制：
 //   "Do you want to proceed?"
@@ -88,6 +93,12 @@ export function isMcpPrompt(t) {
   // 只看屏幕末尾：raw 是累积缓冲，提示关闭后历史文本仍会留在前面
   const tail = t.slice(-2000);
   return MCP_MARKERS.some((m) => tail.includes(m));
+}
+
+/** bypassPermissions 的免责声明。放权范围是全局的，必须由用户自己接受。 */
+export function isBypassPrompt(t) {
+  const tail = t.slice(-2000);
+  return BYPASS_MARKERS.every((m) => tail.includes(m));
 }
 
 /**
@@ -205,6 +216,12 @@ export class Bootstrap {
 
     if (isMcpPrompt(t)) {
       // MCP server 可以执行任意代码，授权必须由用户做出，宿主不代按
+      this.startedAt = Date.now();
+      return 'needs-input';
+    }
+
+    if (isBypassPrompt(t)) {
+      // 全局跳过权限确认的影响范围远超本次会话，同样交给用户自己接受
       this.startedAt = Date.now();
       return 'needs-input';
     }

@@ -1,6 +1,7 @@
 // 单个托管会话：ConPTY 生命周期、IO 转发、状态机、消息注入。
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { spawn as ptySpawn } from 'node-pty';
 import { ScreenBuffer, Bootstrap, isBusyText, isPermissionPrompt, normalize } from './tui.mjs';
@@ -11,6 +12,29 @@ import { pendingMessages, markDelivered, readDelivered, formatMessage } from './
 import { normalizeGroups } from './groups.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ctm 自己作为 Claude Code 插件所在的目录。
+// 托管会话必须加载它，否则会话里的 AI 拿不到 ctm_* 工具，
+// 指南里“在会话内用 /ctm:ask”就不成立。
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/**
+ * 传给 claude 的插件目录参数。
+ * 用户已经显式指定 --plugin-dir 时不重复添加；CTM_NO_PLUGIN=1 可关闭，
+ * 便于排查“是插件导致启动异常”这类问题。
+ */
+function pluginArgs(claudeArgs, { disabled = process.env.CTM_NO_PLUGIN === '1' } = {}) {
+  if (disabled) return [];
+  if (claudeArgs.some((a) => a === '--plugin-dir' || String(a).startsWith('--plugin-dir='))) {
+    return [];
+  }
+  try {
+    return fs.existsSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'))
+      ? ['--plugin-dir', PLUGIN_ROOT]
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 /** 探测 Git Bash 目录。已有插件 hook 的 run-hook.cmd 要求 PATH 里有 bash。 */
 export function detectGitDirs() {
@@ -110,7 +134,13 @@ export class Session {
 
     this.proc = ptySpawn(
       this.bin,
-      [...this.claudePrefix, '--settings', this.settingsFile, ...this.claudeArgs],
+      [
+        ...this.claudePrefix,
+        '--settings',
+        this.settingsFile,
+        ...pluginArgs(this.claudeArgs),
+        ...this.claudeArgs,
+      ],
       {
         name: 'xterm-256color',
         cols: this.cols,

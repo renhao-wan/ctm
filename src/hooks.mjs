@@ -25,6 +25,14 @@ function q(p) {
   return `"${p}"`;
 }
 
+/**
+ * ctm 自己的 MCP 工具名。
+ * 通过 --plugin-dir 加载时前缀是 mcp__plugin_ctm_ctm__，
+ * 通过项目 .mcp.json 加载时前缀是 mcp__ctm__，两种都放行。
+ */
+const CTM_TOOLS = ['ctm_list', 'ctm_status', 'ctm_start', 'ctm_tell', 'ctm_ask', 'ctm_reply', 'ctm_room'];
+const ALLOWED_TOOLS = CTM_TOOLS.flatMap((t) => [`mcp__plugin_ctm_ctm__${t}`, `mcp__ctm__${t}`]);
+
 export function buildSettings({ name, eventsFile, nodeBin = process.execPath }) {
   const hooks = {};
   for (const ev of HOOK_EVENTS) {
@@ -40,7 +48,9 @@ export function buildSettings({ name, eventsFile, nodeBin = process.execPath }) 
       },
     ];
   }
-  return { hooks };
+  // 这些工具只操作 ctm 自己的收件箱与频道，不碰用户项目文件；
+  // 不放行的话每次 AI 调用都会弹权限确认，托管会话会卡在 needs-input。
+  return { hooks, permissions: { allow: ALLOWED_TOOLS } };
 }
 
 export function writeSettings({ dir, name, eventsFile }) {
