@@ -10,7 +10,15 @@
 
 B 会自己收到这条消息并回答；B 的窗口没开也没关系，ctm 会把它重新拉起来。
 
-**第一次用先看动画版指南**：[`docs/guide.html`](docs/guide.html)——浏览器直接打开，六个场景可逐步播放。
+**第一次用先看动画版指南**——它就在安装目录里，六个场景可以逐步播放：
+
+```bash
+npm root -g
+# 把输出路径后面接上：/@renhao-wan/ctm/docs/guide.html
+# 例如 D:\nodejs\GlobalNodeModules\node_modules\@renhao-wan\ctm\docs\guide.html
+```
+
+在资源管理器里双击这个 `guide.html` 就能打开。没装之前也可以看 GitHub 上的源码：[docs/guide.html](https://github.com/renhao-wan/ctm/blob/main/docs/guide.html)（点右上角 Raw，下载后本地打开）。
 
 ---
 
@@ -27,7 +35,7 @@ ctm doctor
 
 安装包自带 `node-pty` 的 Windows/macOS 预编译二进制，**不需要** Visual Studio 或 build-tools。
 
-> **Git Bash 用户注意**：PATH 里要写 `/c/Users/...` 这种带斜杠的形式，写 `C:/Users/...` 会被 Bash 忽略。
+> **Git Bash 用户**：在 `PATH` 里加 Windows 路径时要用 `/c/Users/...` 而不是 `C:/Users/...`，因为 Bash 会把 `C:` 的冒号当成路径分隔符。用 PowerShell 或 CMD 则没有这个问题。
 
 ---
 
